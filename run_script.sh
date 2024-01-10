@@ -1,0 +1,9 @@
+python tools/train.py --cfg experiments/configs/train/train.yaml --data voc.yaml --hyp hyp.scratch.yaml --device 6,7 --exp_name test
+
+python ./tools/train_zdnas.py --cfg config/search/train_zdnas.yaml --data ./config/dataset/voc_dnas.yaml --hyp ./config/training/hyp.zerocost.yaml --model config/model/Search-YOLOv4-CSP.yaml --device 6 --exp_name EXP_NAME --nas DNAS-50 --zc naswot
+python ./tools/train_izdnas.py --cfg config/search/train_izdnas.yaml --data ./config/dataset/voc_dnas.yaml --hyp ./config/training/hyp.zerocost.yaml --model config/model/Search-YOLOv4-CSP.yaml --device 6 --exp_name EXP_NAME --nas DNAS-50 --zc naswot
+# train with the depth loss
+python tools/train_zdnas_depth.py --cfg config/search/train_zdnas_416.yaml --data ./config/dataset/voc_dnas.yaml --hyp ./config/training/hyp.scratch.yaml --model ./config/model/Search-YOLOv4-P5-exp.yaml --device 6 --exp_name p5-voc-depth-50-seed44-fixgamma-0104 --nas DNAS-50 --zc naswot
+# train with the look up table
+python tools/train_zdnas_table.py --cfg config/search/train_zdnas_416_coco.yaml --data ./config/dataset/coco_dnas.yaml --hyp ./config/training/hyp.scratch.yaml --model ./config/model/Search-YOLOv4-P5.yaml --device 5 --exp_name p5-coco-table-01-50-seed44-0107 --nas DNAS-50 --zc naswot --lookup config/lookup/p5_rb5_gpu.yaml
+python tools/train_zdnas_table.py --cfg config/search/train_zdnas_416_coco.yaml --data ./config/dataset/coco_dnas.yaml --hyp ./config/training/hyp.scratch.yaml --model ./config/model/Search-YOLOv4-P5.yaml --device 4 --exp_name p5-coco-overhead-01-40-seed44-0107 --nas DNAS-40 --zc naswot --lookup config/lookup/p5_rb5_gpu_overhead.yaml
