@@ -18,10 +18,11 @@ args = parser.parse_args()
 
 
 EXP_NAME_LIST = [
-    '0818_izdnas-every_act3-S42',
-    '0818_izdnas-every_act3-S43',
-    '0818_izdnas-every_act3-S44',
-    '0818_izdnas-every_act3-S45',
+    'izdnas_pretrain_voc_overhead_0303',
+    # '0818_izdnas-every_act3-S42',
+    # '0818_izdnas-every_act3-S43',
+    # '0818_izdnas-every_act3-S44',
+    # '0818_izdnas-every_act3-S45',
     
 ]
 

@@ -11,16 +11,16 @@ anchors:
 
 search_space:
   BottleneckCSP_Search:
-    gamma_space: [0.50]
-    # gamma_space: [0.25, 0.50, 0.75]
-    bottleneck_space: [1,3,7,15]
+    # gamma_space: [0.50]
+    gamma_space: [0.25, 0.50, 0.75]
+    bottleneck_space: [3]
     # bottleneck_space: [0, 1, 2]
     # bottleneck_space: [0, 1]
 
   BottleneckCSP2_Search:
-    gamma_space: [0.50]
-    # gamma_space: [0.25, 0.50, 0.75]
-    bottleneck_space: [0,3,6,9]
+    # gamma_space: [0.50]
+    gamma_space: [0.25, 0.50, 0.75]
+    bottleneck_space: [3]
     # bottleneck_space: [0, 1, 2]
     # bottleneck_space: [0, 1]
 
