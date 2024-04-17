@@ -55,7 +55,7 @@ def train_epoch_zdnas(epoch, model, zc_func, theta_optimizer, cfg, device, task_
     alpha = 0.01 #0.01 # 0.03        # for flops_loss
     beta  = 0.01         # for params_loss
     gamma = 0.03 # 0.01        # for zero cost loss
-    omega = 0.005 #0.01        # for depth loss
+    omega = 0.01        # for depth loss
     num_iter = 2880
     if local_rank in [-1, 0]:
         logger.info(('%10s' * 8) % ('Epoch', 'gpu_num', 'Param', 'FLOPS', 'f_loss', 'zc_loss', 'total', 'temp'))

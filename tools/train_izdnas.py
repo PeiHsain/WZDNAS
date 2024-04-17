@@ -54,6 +54,8 @@ def config_backup(config_bakup_dir, code_backup_dir, args):
     shutil.copy('lib/core/train.py',                      os.path.join(code_backup_dir, 'core_train.py'))
     shutil.copy(f'{__file__}',                            os.path.join(code_backup_dir, os.path.basename(__file__)))
     shutil.copy('lib/models/structures/supernet.py',      os.path.join(code_backup_dir, 'supernet.py'))
+    shutil.copy('lib/zero_proxy/naswot.py',               os.path.join(code_backup_dir, 'naswot.py'))
+    
     shutil.copy('lib/models/blocks/yolo_blocks.py',       os.path.join(code_backup_dir, 'yolo_blocks.py'))
     shutil.copy('lib/models/blocks/yolo_blocks_search.py',os.path.join(code_backup_dir, 'yolo_blocks_search.py'))
     shutil.copy('lib/models/builders/build_supernet.py',  os.path.join(code_backup_dir, 'build_supernet.py'))
@@ -64,13 +66,12 @@ def parse_config_args(exp_name):
     ###################################################################################
     # Commonly Used Parameter !!
     ###################################################################################
-    parser.add_argument('--cfg',  type=str, help='configuration of cream')
+    parser.add_argument('--cfg',  type=str, help='configuration of training hyp')
     parser.add_argument('--data', type=str, default='config/dataset/voc.yaml', help='data.yaml path')
     parser.add_argument('--hyp',  type=str, default='config/dataset/training/hyp.scratch.yaml', help='hyperparameters path, i.e. data/hyp.scratch.yaml')
     parser.add_argument('--model',type=str, default='config/model/Search-YOLOv4-CSP.yaml', help='model path')
     parser.add_argument('--exp_name', type=str, default='exp', help="name of experiments")
     parser.add_argument('--nas', default='', type=str, help='NAS-Search-Space and hardware constraint combination')
-    parser.add_argument('--pretrain_dir',  default='', type=str, help='pretrain model state dict')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--pre_weights', type=str, default='', help='pretrained model weights')
     parser.add_argument('--zc', type=str, default='', help='zero cost metrics')
@@ -98,11 +99,27 @@ def parse_config_args(exp_name):
     return args, converted_cfg
 
 task_dict = {
+    'DNAS-8':     { 'GFLOPS': 8,  'PARAMS': None, },
+    'DNAS-10':     { 'GFLOPS': 10.5,  'PARAMS': None, },
+    'DNAS-12':     { 'GFLOPS': 12.5,  'PARAMS': None, },
+    # 'DNAS-13':     { 'GFLOPS': 13,  'PARAMS': None, },
+    
+    
     'DNAS-25':     { 'GFLOPS': 25,  'PARAMS': None, },
     'DNAS-35':     { 'GFLOPS': 35,  'PARAMS': None, },
     'DNAS-45':     { 'GFLOPS': 45,  'PARAMS': None, },
     
+    'DNAS-105':     { 'GFLOPS': 105,  'PARAMS': None, },
+    'DNAS-104':     { 'GFLOPS': 104,  'PARAMS': None, },
+    'DNAS-103':     { 'GFLOPS': 103,  'PARAMS': None, },
+    
+    'DNAS-102':     { 'GFLOPS': 102,  'PARAMS': None, },
+    
+    'DNAS-80':     { 'GFLOPS': 80,  'PARAMS': None, },
+    
     'DNAS-70':     { 'GFLOPS': 70,  'PARAMS': None, },
+    'DNAS-69':     { 'GFLOPS': 69,  'PARAMS': None, },
+    
     'DNAS-60':     { 'GFLOPS': 60,  'PARAMS': None, },
     'DNAS-50':     { 'GFLOPS': 50,  'PARAMS': None, },
     'DNAS-40':     { 'GFLOPS': 40,  'PARAMS': None, },
@@ -117,7 +134,6 @@ task_dict = {
 
 def main():
     args, cfg = parse_config_args('super net training')
-    
     #######################################
     # Model Config
     #######################################
@@ -135,12 +151,10 @@ def main():
     output_dir = os.path.join(cfg.SAVE_PATH, cfg.exp_name)
     config_bakup_dir = os.path.join(output_dir, 'config')
     code_backup_dir  = os.path.join(output_dir, 'code')
-    theta_dir        = 'thetas_weights' # thetas.pt
     model_dir        = os.path.join(output_dir, 'model')
     model_w_dir      = os.path.join(output_dir, 'model_weights')
     
     os.makedirs(model_dir, exist_ok=True)
-    os.makedirs(theta_dir, exist_ok=True)
     os.makedirs(model_w_dir, exist_ok=True)
     config_backup(config_bakup_dir, code_backup_dir, args)
 
@@ -255,9 +269,11 @@ def main():
     # start_epoch = resume_epoch if resume_epoch is not None else 0
     # if start_epoch > 0:
     #     lr_scheduler.step(start_epoch)
-
+    print('cfg.WARMUP_EPOCH', cfg.WARMUP_EPOCH)
     if args.local_rank == 0:
         logger.info('Scheduled epochs: %d', num_epochs)
+        logger.info('Training Seed: %d', cfg.SEED)
+        
 
     dataloader_weight, dataset_weight = create_dataloader(train_weight_path, imgsz, cfg.DATASET.BATCH_SIZE, gs, args, hyp=hyp, augment=True,
                                             cache=args.cache_images, rect=args.rect,
@@ -265,12 +281,19 @@ def main():
     dataloader_thetas, dataset_thetas = create_dataloader(train_thetas_path, imgsz, cfg.DATASET.BATCH_SIZE, gs, args, hyp=hyp, augment=True,
                                             cache=args.cache_images, rect=args.rect,
                                             world_size=args.world_size)
+    # dataloader_weight, dataset_weight = create_dataloader(test_path, imgsz, cfg.DATASET.BATCH_SIZE, gs, args, hyp=hyp, augment=True,
+    #                                         cache=args.cache_images, rect=args.rect,
+    #                                         world_size=args.world_size)
+    # dataloader_thetas, dataset_thetas = create_dataloader(test_path, imgsz, cfg.DATASET.BATCH_SIZE, gs, args, hyp=hyp, augment=True,
+    #                                         cache=args.cache_images, rect=args.rect,
+    #                                         world_size=args.world_size)
     for iter_idx, (uimgs, targets, paths, _) in enumerate(dataloader_weight):
         # imgs = (batch=2, 3, height, width)
         imgs     = uimgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
         targets  = targets.to(device)
         
         imgs=imgs[:2]
+        targets = targets[:2]
         if iter_idx == 2: break
 
     mlc = np.concatenate(dataset_weight.labels, 0)[:, 0].max()  # max label class
@@ -301,44 +324,18 @@ def main():
     MODEL_WEIGHT_NAME = os.path.join(args.pretrain_dir, f'model_{cfg.FREEZE_EPOCH}.pt') 
     EMA_WEIGHT_NAME   = os.path.join(args.pretrain_dir, f'ema_pretrained_{cfg.FREEZE_EPOCH}.pt') 
     OPTIMIZER_NAME    = os.path.join(args.pretrain_dir, f'optimizer_{cfg.FREEZE_EPOCH}.pt')
-    if args.pretrain_dir != '':
-        start_epoch = 40
-        
-        # Load Supernet MOdel
-        model.load_state_dict(torch.load(MODEL_WEIGHT_NAME), strict=False)
-        
-        # Load EMA Model
-        if os.path.exists(EMA_WEIGHT_NAME):
-            ema.ema.load_state_dict(torch.load(EMA_WEIGHT_NAME))
-        else:
-            ema = ModelEMA(model) if args.local_rank in [-1, 0] else None
-        ema.updates      = 40 * len(dataloader_weight)
-        ema.updates_arch = 40 * len(dataloader_thetas)
-        
-        # Load Model Weights Optimizer Parameter
-        if os.path.exists(OPTIMIZER_NAME):
-            optimizer.load_state_dict(torch.load(OPTIMIZER_NAME))
-        
-        # Restore Learning Rate
-        lr_scheduler.step(start_epoch)
-        
-        # Calculate mAP of pretrain weights
-        _, _, map50, *other = test(
-            data=args.data, batch_size=16, imgsz=416, save_json=False,
-            model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,
-            single_cls=False, dataloader=testloader, save_dir=output_dir, logger=logger
-        )
-        
+
+    
     # training scheme
     method = 'ver1'
-    temp_decay = (cfg.STAGE2.TEMPERATURE.FINAL/cfg.STAGE2.TEMPERATURE.INIT)**(1/cfg.STAGE2.EPOCHS) # 0.9560
     is_ddp = is_parallel(model)
     ##################################################################
     ### Choice a Zero-Cost Method
     ##################################################################    
-    from lib.zero_proxy import naswot
+    from lib.zero_proxy import naswot, snip
     PROXY_DICT = {
         'naswot': naswot.calculate_zero_cost_map2,
+        'snip': snip.calculate_zero_cost_map
     }
     if args.zc not in PROXY_DICT.keys():
         raise Value(f"key {args.zc} is not registered in PROXY_DICT")
@@ -349,11 +346,12 @@ def main():
     try:
         print('TASK_FLOPS', TASK_FLOPS)
         print('EPOCH', num_epochs)
+        temp_decay1 = (cfg.TEMPERATURE.FINAL/cfg.TEMPERATURE.INIT)**(1/(cfg.EPOCHS+cfg.CONVERGE_EPOCH)) # 0.9560
 
         ###########################################
         # Phase1 Pretrained Model Weights
         ###########################################
-        torch.save(ema.ema.state_dict(),   os.path.join(output_dir, 'model_weights', f'model_init.pt'))
+        torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'model_init.pt'))
         if args.pre_weights == '':
             for epoch in range(start_epoch+1, num_epochs+1):
                 model.train()
@@ -397,7 +395,7 @@ def main():
                     
 
                     if epoch % 2 == 0:
-                        torch.save(ema.ema.state_dict(),   os.path.join(output_dir, 'model_weights', f'ema_pretrained_{epoch}.pt'))
+                        torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'ema_pretrained_{epoch}.pt'))
                         
                     # if True:
                     #     ##############################################################
@@ -453,16 +451,35 @@ def main():
                 )
                 random_testing('end of testing')
                 print()
+                
+                if epoch >= cfg.WARMUP_EPOCH:
+                    bef_temp = model.temperature
+                    aft_temp = model.temperature * temp_decay1
+                    model.temperature = aft_temp #* np.exp(-0.065)
+                    print(f'Decreasing temperature. End Of Epoch{epoch}  {bef_temp:.4f}=>{aft_temp:.4f}')
+                
+                
             s = ('%20s' + '%12s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@.5', 'mAP@.5:.95')
             logger.info(s)
-            # filename = os.path.join(model_dir, f'phase1_best_f{TASK_FLOPS}.yaml')
-            # export_thetas(model.softmax_sampling(detach=True), model, model.model_args, filename)
+            model.load_state_dict(ema.ema.state_dict())
         else:
             model.load_state_dict(torch.load(args.pre_weights))
 
+        
         ###########################################
         # Phase2 Train Zero-DNAS 
         ###########################################
+        temp_decay2 = (cfg.STAGE2.TEMPERATURE.FINAL/cfg.STAGE2.TEMPERATURE.INIT)**(1/cfg.STAGE2.EPOCHS) # 0.9560
+        model.temperature  = cfg.STAGE2.TEMPERATURE.INIT
+        arch_prob = model.module.softmax_sampling() if is_ddp else model.softmax_sampling()
+        arch_raw  = model.module.thetas_main if is_ddp else model.thetas_main
+        with open(os.path.join(output_dir, 'thetas.txt'), 'a') as f:
+            arch_str=str(stringify_theta(arch_prob, normalize=False))                
+            f.write(f'Init Prob: ' + arch_str +'\n')
+        with open(os.path.join(output_dir, 'thetas_raw.txt'), 'a') as f:
+            raw_arch_str=str(stringify_theta(arch_raw, normalize=False))
+            f.write(f'Init Raw:  ' + raw_arch_str +'\n')
+                
         for epoch in range(cfg.STAGE2.EPOCHS):
             best_arch = train_epoch_zdnas(epoch, model, wot_function, theta_optimizer, cfg, 
                 device=device, task_flops=TASK_FLOPS, est=model_est, logger=logger, logdir=output_dir)
@@ -472,17 +489,22 @@ def main():
             ##############################################################
             print('Decreasing temperature!')
             if is_parallel(model):
-                model.module.temperature = model.module.temperature * temp_decay #* np.exp(-0.065)
+                model.module.temperature = model.module.temperature * temp_decay2 #* np.exp(-0.065)
             else:
-                model.temperature = model.temperature * temp_decay #* np.exp(-0.065)
+                model.temperature = model.temperature * temp_decay2 #* np.exp(-0.065)
             
             ##############################################################
             # 
             ##############################################################
             arch_prob = model.module.softmax_sampling() if is_ddp else model.softmax_sampling()
+            arch_raw  = model.module.thetas_main if is_ddp else model.thetas_main
             with open(os.path.join(output_dir, 'thetas.txt'), 'a') as f:
-                arch_str=str(stringify_theta(arch_prob, normalize=True, temperature=model.temperature))
-                f.write(f'Epoch {epoch}' + arch_str +'\n')
+                arch_str=str(stringify_theta(arch_prob, normalize=False))                
+                f.write(f'Epoch {epoch} Prob: ' + arch_str +'\n')
+            with open(os.path.join(output_dir, 'thetas_raw.txt'), 'a') as f:
+                raw_arch_str=str(stringify_theta(arch_raw, normalize=False))
+                f.write(f'Epoch {epoch} Raw:  ' + raw_arch_str +'\n')
+                
         filename = os.path.join(model_dir, f'phase2_{args.zc}-best_f{TASK_FLOPS}.yaml')
         export_thetas(model.softmax_sampling(detach=True), model, model.model_args, filename)
 

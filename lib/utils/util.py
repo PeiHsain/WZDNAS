@@ -262,7 +262,10 @@ def cross_entropy_loss_with_soft_target(pred, soft_target):
 
 
 def create_supernet_scheduler(cfg, optimizer):
-    lf = lambda x: (((1 + math.cos(x * math.pi / cfg.EPOCHS)) / 2) ** 1.0) * 0.8 + 0.2  # cosine
+    if cfg.EPOCHS == 0:
+        lf = lambda x: x
+    else:
+        lf = lambda x: (((1 + math.cos(x * math.pi / cfg.EPOCHS)) / 2) ** 1.0) * 0.8 + 0.2  # cosine
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
     # ITERS = cfg.EPOCHS * \
     #     (1280000 / (cfg.NUM_GPU * cfg.DATASET.BATCH_SIZE))
@@ -297,9 +300,10 @@ def stringify_theta(thetas, normalize=False, temperature=1.):
     list of archtiecture value
     """
     if normalize:
-        normalize_func = lambda x: torch.nn.functional.softmax(x / temperature).detach().cpu().numpy()
+        softmax_func = lambda x: torch.nn.functional.softmax(x / temperature).detach().cpu().numpy()
+        sigmoid_func = lambda x: torch.nn.functional.sigmoid(x / temperature).detach().cpu().numpy()
     else:
-        normalize_func = lambda x: x.detach().cpu().numpy()
+        softmax_func = sigmoid_func = lambda x: x.detach().cpu().numpy()
     
     
     write_arch = []
@@ -311,14 +315,18 @@ def stringify_theta(thetas, normalize=False, temperature=1.):
         else:
             for key, value in arch.items():
                 if key == 'block_name': pass
-                else:
-                    tmp_arch[key] = normalize_func(arch[key])
-                     
+                elif key == 'connection': 
+                    tmp_arch[key] = sigmoid_func(arch[key])
+                else:                     tmp_arch[key] = softmax_func(arch[key])
+                    
         write_arch.append(tmp_arch)
     return write_arch
 
 
 def thetas_to_archtecture(thetas, model):
+    """
+    thetas: only accepct normalize thetas
+    """
     export_thetas = copy.deepcopy(thetas)
     theta_idx = 0
     for depth, m in enumerate(model.blocks):
@@ -340,6 +348,7 @@ def thetas_to_archtecture(thetas, model):
                     export_thetas[theta_idx][key] = search_space[key][best_option_idx]
             elif m.__class__ in [ELAN_Search, ELAN2_Search]:
                 search_space = m.search_space
+                print(f'thetas[{theta_idx}]={thetas[theta_idx]}')
                 for key in search_space.keys():
                     if key == 'connection':
                         con_len = len(search_space['connection'])
@@ -382,10 +391,7 @@ def export_thetas(thetas, model, origin_config, output_file):
                 export_config[part][depth][2] = export_config[part][depth][2].replace('_Search','')
                 # Process Block Depth
                 if 'connection' in discrete_thetas[theta_idx].keys():
-                    n_val = min(discrete_thetas[theta_idx]['connection'])
-                    discrete_thetas[theta_idx]['connection'].extend([n_val-1, n_val-2])
                     export_config[part][depth][3].append(discrete_thetas[theta_idx]['connection'])
-                    export_config[part][depth][3].append(-n_val + 2)
                 # Process Block Gamma
                 if 'gamma' in discrete_thetas[theta_idx].keys():
                     gamma_list.append(discrete_thetas[theta_idx]['gamma'])

@@ -168,12 +168,12 @@ class FlopsEst(object):
                             for op_idx, option in pbar:
                                 args_cn         = int(block.search_space['gamma'     ][option[search_keys.index('gamma')]] * block.base_cn)
                                 args_connection = comb_list[option[search_keys.index('connection')]]
+                                print(f'op_idx={op_idx} {args_connection}')
                                 args = dict(
                                     c1=in_chs,
                                     c2=out_chs,
                                     cn=args_cn,
                                     connection=args_connection,
-                                    n= -np.min(args_connection)+2 if len(args_connection) > 0 else 2,
                                 )
                                 # print('[Roger] args', args)
                                 classname = block.__class__.__name__.replace('_Search', '')
@@ -224,6 +224,12 @@ class FlopsEst(object):
                         
                         dimension_list.append(next_spatial_dimension)
                         channel_list.append(out_chs)
+                        
+                        # import thop
+                        # my_size = (1, input_shape[0], input_shape[1]*dimension_factor, input_shape[2]*dimension_factor)
+                        # flops_now = thop.profile(block, inputs=(torch.zeros(my_size),), verbose=False)[0] / 1E9 * 2
+                        # print(f'Comparison {type(block)} Original {flops/1e3:10.6f} Now {flops_now:10.6f} {my_size}')
+                    
                     else:
                         # Params raw value
                         macs, params, next_spatial_dimension = get_model_complexity_info(
@@ -240,7 +246,15 @@ class FlopsEst(object):
                             next_spatial_dimension = (next_spatial_dimension[0] * dimension_factor, next_spatial_dimension[1] * dimension_factor)
                         dimension_list.append(next_spatial_dimension)
                         channel_list.append(out_chs)
-                                        
+                        
+                        # try:
+                        #     import thop
+                        #     my_size = (1, input_shape[0], input_shape[1]*dimension_factor, input_shape[2]*dimension_factor)
+                        #     flops_now = thop.profile(block, inputs=(torch.zeros(my_size),), verbose=False)[0] / 1E9 * 2
+                        #     print(f'Comparison {type(block)} Original {flops/1e3:10.6f} Now {flops_now:10.6f} {my_size}')
+                        # except:
+                        #     pass
+                          
                     # Store the flop and param for each choices
                     self.flops_fixed  += flops
                     self.params_fixed += params
@@ -265,10 +279,10 @@ class FlopsEst(object):
                     out_dim = (out_chs, ) + tuple(next_spatial_dimension)
                 
                 if 'Search' not in block.__class__.__name__:
-                    print(f'{block_id:2s} {block.__class__.__name__:20s} in : {str(in_dim):20s} out : {str(out_dim):20s}     FLOPS: {flops/1e3:5.2f}G  PARAMS: {params:.2f}M')
+                    print(f'{block_id:2s} {block.__class__.__name__:20s} in : {str(in_dim):20s} out : {str(out_dim):20s}     FLOPS: {flops/1e3:9.26f}G  PARAMS: {params:.6f}M ACC_FLOPS:{largest_arch_flops:.6f} ACC_PARAM: {largest_arch_params:.6f}')
                 else:
-                    print(f'{block_id:2s} {block.__class__.__name__:20s} in : {str(in_dim):20s} out : {str(out_dim):20s} MAX FLOPS: {max(flops_list)/1e3:5.2f}G  PARAMS: {max(param_list):.2f}M')
-                    print(f'{block_id:2s} {block.__class__.__name__:20s} in : {str(in_dim):20s} out : {str(out_dim):20s} MIN FLOPS: {min(flops_list)/1e3:5.2f}G  PARAMS: {min(param_list):.2f}M')
+                    print(f'{block_id:2s} {block.__class__.__name__:20s} in : {str(in_dim):20s} out : {str(out_dim):20s} MAX FLOPS: {max(flops_list)/1e3:9.26f}G  PARAMS: {max(param_list):.6f}M')
+                    print(f'{block_id:2s} {block.__class__.__name__:20s} in : {str(in_dim):20s} out : {str(out_dim):20s} MIN FLOPS: {min(flops_list)/1e3:9.26f}G  PARAMS: {min(param_list):.6f}M')
                     
                 spatial_dimension = next_spatial_dimension    
                 largest_arch_params += param_list[np.argmax(flops_list)]

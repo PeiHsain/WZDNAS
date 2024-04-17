@@ -30,7 +30,7 @@ def analyze_map_func2(arch_info_list, title, img_filename):
     # arch1    = arch_info1['arch']
     # arch2    = arch_info2['arch']
     write_img  = img_filename is not None
-    fig, axes = plt.subplots(9)
+    fig, axes = plt.subplots(8)
     fig.suptitle(title)
     for stage_id in range(len(arch_info_list[0]['naswot_map'])):
         score_list = []
@@ -161,6 +161,4 @@ if __name__ == '__main__':
             data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
             
             writer.append_data(data)
-            # imageio.imsave(Path(f'{experiment_path}/(args.type + '.mp4')'))
-            # Path(f'experiments/workspace/train/{experiment_name}/')
             # if idx_info[0] == 2: break 
