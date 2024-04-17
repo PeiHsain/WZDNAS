@@ -1,2 +1,7 @@
-*__pycache__
-experiments/*
+venv/
+__pycache__/
+*.pyc
+*.json
+data/
+experiments/
+experiment_results/old*

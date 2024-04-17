@@ -1,0 +1,3 @@
+python ./tools/train_izdnas_all.py --cfg config/search/izdnasV4-P5.yaml --data ./config/dataset/voc_dnas.yaml --hyp ./config/training/hyp.zerocost.yaml --model config/model/Search-YOLOv4-P5.yaml --device 0 --exp_name EXP_NAME --nas DNAS-70 --zc naswot --lookup config/lookup/p5_rb5_gpu_overhead.yaml
+cd ../ScaledYOLOv4-NAS
+python train.py --batch-size 32 --img-size 416 --data voc.yaml --cfg ../ZeroDNAS/experiments/workspace/train/  --weights '' --device 0 --name test
