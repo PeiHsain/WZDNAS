@@ -84,7 +84,7 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
     epoch_model_list = ['model_init.pt', *[f'ema_pretrained_{epoch}.pt' for epoch in range(2,22,2)]]    
     epoch_model_list = epoch_model_list[:10]
     
-    exp_list      = natsorted(glob.glob(os.path.join('experiments','workspace','valid_exp',args.exp_series+'*')))
+    exp_list      = natsorted(glob.glob(os.path.join('experiments','workspace','train',args.exp_series+'*')))
     # exp_list      = exp_list[:2]
     
     exp_name_list = [exp_name.split('/')[-1] for exp_name in exp_list]
@@ -185,13 +185,13 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
     ###############################################
     # Plotting Kendal tau for each stage
     ###############################################
-    fig, axes = plt.subplots(4, 2, figsize=(16,20))
+    fig, axes = plt.subplots(3, 3, figsize=(20,24))
     for stage_idx in range(NUM_STAGES):
         ###################
         # Draw Figure
         ###################
-        row_idx = stage_idx // 2
-        col_idx = stage_idx %  2
+        row_idx = stage_idx // 3
+        col_idx = stage_idx %  3
         
         color = 'tab:red'
         axes[row_idx,  col_idx].plot(data2[stage_idx]['tau']['x'], data2[stage_idx]['tau']['y'], label=f'tau', color = color)
