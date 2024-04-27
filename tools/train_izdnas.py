@@ -88,7 +88,7 @@ def parse_config_args(exp_name):
     parser.add_argument('--single-cls', action='store_true', help='train as single-class dataset')
     parser.add_argument('--collect-samples', type=int, default=0, help='Sample a lot of different architectures with corresponding flops, if not 0 then samples specified number and exits the programm')
     parser.add_argument('--collect-synflows', type=int, default=0, help='Sample a lot of different architectures with corresponding synflows, if not 0 then samples specified number and exits the programm')
-    parser.add_argument('--resume-theta-training', default='', type=str, help='load pretrained thetas')
+    parser.add_argument('--resume_theta_training', default='', type=str, help='load pretrained thetas')
     ###################################################################################
     args = parser.parse_args()
 
@@ -99,6 +99,7 @@ def parse_config_args(exp_name):
     return args, converted_cfg
 
 task_dict = {
+    'DNAS-7':     { 'GFLOPS': 7,  'PARAMS': None, },
     'DNAS-8':     { 'GFLOPS': 8,  'PARAMS': None, },
     'DNAS-10':     { 'GFLOPS': 10.5,  'PARAMS': None, },
     'DNAS-12':     { 'GFLOPS': 12.5,  'PARAMS': None, },
@@ -287,14 +288,24 @@ def main():
     # dataloader_thetas, dataset_thetas = create_dataloader(test_path, imgsz, cfg.DATASET.BATCH_SIZE, gs, args, hyp=hyp, augment=True,
     #                                         cache=args.cache_images, rect=args.rect,
     #                                         world_size=args.world_size)
-    for iter_idx, (uimgs, targets, paths, _) in enumerate(dataloader_weight):
+    for iter_idx, (uimgs, utargets, paths, _) in enumerate(dataloader_weight):
         # imgs = (batch=2, 3, height, width)
-        imgs     = uimgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
-        targets  = targets.to(device)
+        imgs_out     = uimgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
+        targets_out  = utargets.to(device)
         
-        imgs=imgs[:2]
-        targets = targets[:2]
-        if iter_idx == 2: break
+        # imgs=imgs[:2]
+        # targets = targets[:2]
+        # if iter_idx == 2: break
+        if iter_idx == 0:
+            imgs=imgs_out[:cfg.DATASET.BATCH_SIZE]
+            targets=targets_out[:cfg.DATASET.BATCH_SIZE]
+        # else:
+        #     imgs = torch.cat((imgs, imgs_out[:cfg.DATASET.BATCH_SIZE]), 0).to(device)
+        #     targets = torch.cat((targets, targets_out[:cfg.DATASET.BATCH_SIZE]), 0).to(device)
+        # if iter_idx == 0:
+            break
+    print(imgs.shape)
+    print(targets.shape)
 
     mlc = np.concatenate(dataset_weight.labels, 0)[:, 0].max()  # max label class
     nb = len(dataloader_weight)  # number of batches
@@ -321,9 +332,9 @@ def main():
                                        cache=args.cache_images, rect=True, local_rank=-1, world_size=args.world_size)[0]
     
     start_epoch = 0
-    MODEL_WEIGHT_NAME = os.path.join(args.pretrain_dir, f'model_{cfg.FREEZE_EPOCH}.pt') 
-    EMA_WEIGHT_NAME   = os.path.join(args.pretrain_dir, f'ema_pretrained_{cfg.FREEZE_EPOCH}.pt') 
-    OPTIMIZER_NAME    = os.path.join(args.pretrain_dir, f'optimizer_{cfg.FREEZE_EPOCH}.pt')
+    # MODEL_WEIGHT_NAME = os.path.join(args.pretrain_dir, f'model_{cfg.FREEZE_EPOCH}.pt') 
+    # EMA_WEIGHT_NAME   = os.path.join(args.pretrain_dir, f'ema_pretrained_{cfg.FREEZE_EPOCH}.pt') 
+    # OPTIMIZER_NAME    = os.path.join(args.pretrain_dir, f'optimizer_{cfg.FREEZE_EPOCH}.pt')
 
     
     # training scheme

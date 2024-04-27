@@ -9,7 +9,7 @@ from lib.models.blocks.yolo_blocks_search import *
 import numpy as np
 
 PREPROCESSED=False
-BATCH_SIZE=2
+BATCH_SIZE=8
 
 # Method 0 (Original NASWOT & Egor ZeroDNAS should be this one)
 # Calculate ZeroCost for output of every ReLU or Mish block
@@ -172,7 +172,7 @@ def calculate_wot(model, arch_prob, inputs, targets, opt=None):
 
 
 PREPROCESSED_BLOCK=False
-BATCH_SIZE=2
+BATCH_SIZE=4
 REGISTER_LIST = []
 # # Method 1 (My ZeroDNAS Version)
 # # Calculate ZeroCost for output of Large Structure (CSP, CSP2, ELAN, ELAN2, Bottleneck, SPPCSP, Cov) 
@@ -326,6 +326,7 @@ def preprocess_block2(model):
             out = out[0]
         out = out.view(out.size(0), -1)
         out = out[:BATCH_SIZE]
+        # out = out[:out.shape[0]]
         x = (out > 0).float()
         K1 = x @ x.t()
         K2 = (1.-x) @ (1.-x.t())
@@ -338,12 +339,15 @@ def preprocess_block2(model):
             if isinstance(out, tuple):
                 out = out[0]
             out = out.view(out.size(0), -1)
+            # print(out.shape)
             out = out[:BATCH_SIZE]
+            # out = out[:out.shape[0]]
             x = (out > 0).float()
             K1 = x @ x.t()
             K2 = (1.-x) @ (1.-x.t())
             # print(K1.cpu().numpy().flatten(), K2.cpu().numpy().flatten())
             parent_module.wot += K1.cpu().numpy() + K2.cpu().numpy()
+            # print(f'forward_hook {parent_module.wot.shape}')
             # print(f'[Search Hook] Parent Module: {str(type(parent_module)):20s} | Current Module:{str(type(module)):20s}', parent_module.wot.flatten())
         return search_forward_hook
     
@@ -420,6 +424,7 @@ def calculate_zero_cost_map2(model, arch_prob, inputs, targets=None, short_name=
                 
                 # Calculate Each Zero-Cost FLOPS
                 _ = m(x, args=block_args)
+                # print(m.wot.shape)
                 s, ld = np.linalg.slogdet(m.wot)
                 # print(m.__class__.__name__, str(block_args), m.wot.flatten(), ld)
                 # Note that the negative symbol is to make the wot score larger in negative side

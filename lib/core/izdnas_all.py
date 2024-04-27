@@ -583,8 +583,8 @@ def train_epoch_zdnas_all(epoch, model, zc_func, theta_optimizer, cfg, device, t
     alpha = cfg.STAGE2.ALPHA #0.03 # 0.005 # 0.01 # 0.03    # for flops_loss
     # beta  = 0.010                                           # for params_loss
     gamma = cfg.STAGE2.GAMMA # 0.01                         # for zero cost loss
-    theta = 0.002 #0.01 # 0.005                               # for latency loss
-    omega = 0.001 #0.010                                       # for depth loss
+    theta = cfg.STAGE2.THETA #0.01 # 0.005                               # for latency loss
+    omega = cfg.STAGE2.OMEGA #0.010                                       # for depth loss
     
     # alpha = 0.0 if epoch < cfg.STAGE2.HARDWARE_FREEZE_EPOCHS else alpha
     print(f'Gamma(ZC loss weight)={gamma:.3f} Alpha(FLOP loss weight)={alpha:.3f}')

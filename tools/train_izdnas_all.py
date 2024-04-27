@@ -291,14 +291,25 @@ def main():
     # dataloader_thetas, dataset_thetas = create_dataloader(test_path, imgsz, cfg.DATASET.BATCH_SIZE, gs, args, hyp=hyp, augment=True,
     #                                         cache=args.cache_images, rect=args.rect,
     #                                         world_size=args.world_size)
-    for iter_idx, (uimgs, targets, paths, _) in enumerate(dataloader_weight):
+    for iter_idx, (uimgs, utargets, paths, _) in enumerate(dataloader_weight):
         # imgs = (batch=2, 3, height, width)
-        imgs     = uimgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
-        targets  = targets.to(device)
+        imgs_out    = uimgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
+        targets_out  = utargets.to(device)
         
-        imgs=imgs[:2]
-        targets = targets[:2]
-        if iter_idx == 2: break
+        # imgs=imgs_out[:cfg.DATASET.BATCH_SIZE]
+        # targets = targets_out[:cfg.DATASET.BATCH_SIZE]
+        # logger.info(f"Zero cost images: {paths}")
+        # if iter_idx == 2:break
+        if iter_idx == 0:
+            imgs=imgs_out[:cfg.DATASET.BATCH_SIZE]
+            targets=targets_out[:cfg.DATASET.BATCH_SIZE]
+        else:
+            imgs = torch.cat((imgs, imgs_out[:cfg.DATASET.BATCH_SIZE]), 0).to(device)
+            targets = torch.cat((targets, targets_out[:cfg.DATASET.BATCH_SIZE]), 0).to(device)
+        if iter_idx == 0:
+            break
+    print(imgs.shape)
+    print(targets.shape)
 
     mlc = np.concatenate(dataset_weight.labels, 0)[:, 0].max()  # max label class
     nb = len(dataloader_weight)  # number of batches
