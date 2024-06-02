@@ -213,7 +213,7 @@ def main():
     ##################################################################
     ### Choice a Zero-Cost Method
     ##################################################################  
-    stats_folder = os.path.join('experiments','workspace','valid_exp',f"stats_{args.exps}")
+    stats_folder = os.path.join('experiments','workspace','statistics',f"stats_{args.exps}")
     img_pairs = []
     for iter_idx, (uimgs, targets, paths, _) in enumerate(dataloader_weight):
         # imgs = (batch=2, 3, height, width)
@@ -247,12 +247,12 @@ def main():
     
     try:
         model_list = ['model_init.pt', *[f'ema_pretrained_{epoch}.pt' for epoch in range(2,22,2)]]
-        exp_list   = natsorted(glob.glob(os.path.join('experiments','workspace','valid_exp',args.exps+'*')))
+        exp_list   = natsorted(glob.glob(os.path.join('experiments','workspace','train',args.exps+'*')))
         
         os.makedirs(stats_folder, exist_ok=True)
         
         # model_list = model_list[4:]
-        print(os.path.join('experiments','workspace','valid_exp',args.exps))
+        print(os.path.join('experiments','workspace','train',args.exps))
         print(model_list)
 
         for exp_path in exp_list:

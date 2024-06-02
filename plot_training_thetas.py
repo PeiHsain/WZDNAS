@@ -30,7 +30,7 @@ def analyze_map_func2(arch_info_list, title, img_filename):
     # arch1    = arch_info1['arch']
     # arch2    = arch_info2['arch']
     write_img  = img_filename is not None
-    fig, axes = plt.subplots(8)
+    fig, axes = plt.subplots(9)
     fig.suptitle(title)
     for stage_id in range(len(arch_info_list[0]['naswot_map'])):
         score_list = []
@@ -85,7 +85,7 @@ def analyze_map_func2(arch_info_list, title, img_filename):
         # Rank Plot
         for ii, (rank, score, color) in enumerate(zip(rank_list,comp_list,color_list)):
             for iii in range(4):
-                loc = x[rank[iii]] - with_val * (ii-len(comp_list)/2) #+ 0.024
+                loc = x[rank[iii]] - with_val * (ii-len(comp_list)/3) #+ 0.024
                 axes[stage_id].text(loc, score[rank[iii]]-arr_size*1.2, str(iii+1), color=color)
 
     fig.set_size_inches(15.5, 15.5)
