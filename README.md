@@ -5,13 +5,20 @@
 ## Abstract
 Neural Architecture Search (NAS), designed to discover optimal network structures within specific model complexity constraints, is a time-intensive process, especially for tasks like object detection. Differentiable-based NAS (DNAS) improves efficiency by relaxing the search space, but it still demands considerable time due to the necessity of training the SuperNet. Combining zero-cost proxies offers a solution by ranking architectures without requiring training, significantly speeding up the search process and reducing resource consumption. However, zero-cost rankings are sensitive to SuperNet initialization, leading to unstable searches. Moreover, previous NAS methods for object detection have not adequately considered real-world device implementation, making the search results less suitable for specific edge devices. To tackle these issues, we propose WZDNAS, which optimizes the stability and robustness of combining DNAS and zero-cost proxies and is more suitable for hardware applications. By incorporating SuperNet warm-up initialization and hardware-efficient loss, we improve the stability of the algorithm, making it possible to discover models with smaller sizes and faster inference speeds that are optimized for edge devices. Our experiments in object detection demonstrate that the architectures discovered by WZDNAS are competitive and outperform both manually designed models and other NAS methods.
 
-## Dataset File Structure
+## File Structure
 ```
 WZDNAS
-└── data
-    ├── coco  (Link)
-    └── VOC2007 (Link) 
-
+└── data: dataset
+|    ├── coco  (Link)
+|    └── VOC2007 (Link) 
+└── config
+|    ├── dataset: setting of dataset
+|    ├── lookup: look-up tables
+|    ├── model: setting of searching architecture
+|    ├── search: setting of warm-up and searching
+|    └── traing: hyperparameters of training
+└── lib: function liberary
+└── tools: main file
 ```
 ## Execution Step
 ### Searching Phase
@@ -20,7 +27,9 @@ WZDNAS
 
 ### 2. Search comment
  - WZDNAS(normal) searching (with warm-up phase and hardware-aware loss)
-```python ./tools/train_izdnas_all.py --cfg config/search/izdnasV4-P5-S42.yaml --data ./config/dataset/voc_dnas.yaml --hyp ./config/training/hyp.zerocost.yaml --model config/model/Search-YOLOv4-P5.yaml --device 6 --exp_name EXP_NAME --nas DNAS-70 --zc naswot --lookup config/lookup/p5_rb5_gpu.yaml```
+```
+python ./tools/train_izdnas_all.py --cfg config/search/izdnasV4-P5-S42.yaml --data ./config/dataset/voc_dnas.yaml --hyp ./config/training/hyp.zerocost.yaml --model config/model/Search-YOLOv4-P5.yaml --device 6 --exp_name EXP_NAME --nas DNAS-70 --zc naswot --lookup config/lookup/p5_rb5_gpu.yaml
+```
     - ```--cfg```: training parameter setting
     - ```--data```: dataset
     - ```--hyp```: hyperparameters
