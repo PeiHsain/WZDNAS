@@ -41,19 +41,6 @@ For details and code can refer from our [ScaledYOLOv4 gihub](https://github.com/
 #### Test the model
 ```python test.py --img 416 --conf 0.001 --batch 8 --device 5 --data voc.yaml --weights BEST_WEIGHT.pt```
 
-## Experiment Results
-### Comparison under the same search space on the Pascal VOC dataset.
-![table1](./doc/result_csp_p5_comparision.png)
-### Comparison with different NAS methods that focus on object detection tasks on the COCO minval dataset.
-![table2](./doc/result_nas_comparision.png)
-### Comparison with Zero-cost proxies on the Pascal VOC dataset.
-![table3](./doc/result_zc_comparision.png)
-### Ablation study of our proposed warm-up initialization methods on the Pascal VOC dataset.
-![table4](./doc/result_ablation_warmup_comparision.png)
-### Ablation study of each component of our proposed methods on the Pascal VOC dataset.
-![table5](./doc/result_ablation_2parts_comparision.png)
-### Ablation study for each loss of WZDNAS on the Pascal VOC dataset.
-![table6](./doc/result_ablation_loss_comparision.png)
 
 
 
