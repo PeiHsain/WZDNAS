@@ -30,13 +30,13 @@ WZDNAS
 ```
 python ./tools/train_izdnas_all.py --cfg config/search/izdnasV4-P5-S42.yaml --data ./config/dataset/voc_dnas.yaml --hyp ./config/training/hyp.zerocost.yaml --model config/model/Search-YOLOv4-P5.yaml --device 6 --exp_name EXP_NAME --nas DNAS-70 --zc naswot --lookup config/lookup/p5_rb5_gpu.yaml
 ```
-    - ```--cfg```: training parameter setting
-    - ```--data```: dataset
-    - ```--hyp```: hyperparameters
-    - ```--model```: model architecture templet file
-    - ```--nas```: target FLOPs
-    - ```--zc```: zero-cost proxy
-    - ```lookup```: look-up table
+```--cfg```: training parameter setting
+```--data```: dataset
+```--hyp```: hyperparameters
+```--model```: model architecture templet file
+```--nas```: target FLOPs
+```--zc```: zero-cost proxy
+```lookup```: look-up table
 
 ### WZDNAS(speed-up)
  - Detail in ```dw``` branch
@@ -44,11 +44,17 @@ python ./tools/train_izdnas_all.py --cfg config/search/izdnasV4-P5-S42.yaml --da
 ### Training Phase (ScaledYOLOv4)
 For details and code can refer from our [ScaledYOLOv4 gihub](https://github.com/B106Roger/ScaledYOLOv4-NAS/tree/normal).
  - Clone the repository
-``` git clone https://github.com/B106Roger/ScaledYOLOv4-NAS.git -b normal```
+``` 
+git clone https://github.com/B106Roger/ScaledYOLOv4-NAS.git -b normal
+```
  - Train the model
-```python train.py --batch-size 32 --img-size 416 --data voc.yaml --hyp ./data/hyp.finetune.yaml --cfg ./models/yolov4-csp.yaml --weights '' --device 3,4 --name EXP_NAME```
+```
+python train.py --batch-size 32 --img-size 416 --data voc.yaml --hyp ./data/hyp.finetune.yaml --cfg ./models/yolov4-csp.yaml --weights '' --device 3,4 --name EXP_NAME
+```
  - Test the model
-```python test.py --img 416 --conf 0.001 --batch 8 --device 5 --data voc.yaml --weights BEST_WEIGHT.pt```
+```
+python test.py --img 416 --conf 0.001 --batch 8 --device 5 --data voc.yaml --weights BEST_WEIGHT.pt
+```
 
 
 
