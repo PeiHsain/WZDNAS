@@ -30,6 +30,7 @@ def analyze_map_func2(arch_info_list, title, img_filename):
     # arch1    = arch_info1['arch']
     # arch2    = arch_info2['arch']
     write_img  = img_filename is not None
+    # fig, axes = plt.subplots(8)
     fig, axes = plt.subplots(9)
     fig.suptitle(title)
     for stage_id in range(len(arch_info_list[0]['naswot_map'])):
@@ -54,7 +55,7 @@ def analyze_map_func2(arch_info_list, title, img_filename):
         
         with_val = 0.1
         for i, score_arr in enumerate(comp_list):
-            axes[stage_id].bar(x - with_val* (i-len(comp_list)/2), height=score_arr, width=with_val, color=[color_list[i]]*candidiate_num, align='edge')
+            axes[stage_id].bar(x - with_val* (i-len(comp_list)/3), height=score_arr, width=with_val, color=[color_list[i]]*candidiate_num, align='edge')
         #######################################
         # Basic Math Information
         #######################################

@@ -15,7 +15,7 @@ import tqdm
 import shutil
 import scipy.stats as stats
 # import _init_paths
-import sys, json
+import sys, json, copy
 sys.path.insert(0, 'lib')
 
 # import timm packages
@@ -49,165 +49,142 @@ import imageio
 import matplotlib.pyplot as plt
 
 
-def analyze_param(model_param):
+def analyze_zcmap(model, zero_cost_func, image_idx):
     """
-    analyze the model parameter in stage.
+    analyze the model ranking in stage.
     """
+    prob = model.softmax_sampling(detach=True)
     
-    #############################
-    # Searchable block name
-    #############################
-    # In YOLOv4-CSP, 4,6,8,10,16,21,25,29 are searchable structure
-    # blocks_name = ['blocks.4', 'blocks.6', 'blocks.8', 'blocks.10', 'blocks.16', 'blocks.21', 'blocks.25', 'blocks.29']
-    # YOLOv4=P5
-    blocks_name = ['blocks.2', 'blocks.4', 'blocks.6', 'blocks.8', 'blocks.10', 'blocks.16', 'blocks.21', 'blocks.25', 'blocks.29']
-    
-    param_stats = {}
-    for key in model_param.keys():
-        print(key)
-        name = '.'.join(key.split('.')[:2])
-        if len(model_param[key].shape) == 4: # Suppose convlution kernel is 4 dimension vector
-            if name not in param_stats.keys():
-                param_stats[name] = model_param[key].flatten()
-            else:
-                param_stats[name] = torch.cat([param_stats[name], model_param[key].flatten()], dim=0)
+    zc_map = zero_cost_func(prob, image_idx)
+    zc_map = str(zc_map)
+    # print(zc_map)
 
-    # Corresponding to the number of stage
-    results = []
-    print(param_stats.keys())
-    for block_name in param_stats.keys():
-        if block_name not in blocks_name: continue
+    return zc_map
+
+def arch_generator(zc_map):
+    # f= open(filename, 'r')
+    # for idx, item in enumerate(f):
+        # if idx % 2 == 1:
+    if True:
+        # idx_string, *content = item.split(' ')
         
-        mean = param_stats[block_name].mean().detach().cpu().numpy().item()
-        var  = param_stats[block_name].var().detach().cpu().numpy().item()
-        min_val = param_stats[block_name].min().detach().cpu().numpy().item()
-        max_val = param_stats[block_name].max().detach().cpu().numpy().item()
-        print(f"{block_name}=({mean:.6f}, {var:.6f}, {min_val:.6f}, {max_val:.6f})")
-        results.append({'block_name': block_name,'mean': mean, 'var': var, 'min': min_val, 'max': max_val})
-
-    return results
-
-def analyze_parameter_epoch_info(model, args, img_list, target_list):
-    # NUM_STAGES = 8
-    NUM_STAGES = 9
-    # epoch_model_list = ['model_init.pt', *[f'ema_pretrained_{epoch}.pt' for epoch in range(2,22,2)]] 
-    epoch_model_list = ['lora_init.pt', *[f'lora_pretrained_{epoch}.pt' for epoch in range(2,22,2)]]   
-    # epoch_model_list = epoch_model_list[:4]
-    
-    # exp_list      = natsorted(glob.glob(os.path.join('experiments','workspace','valid_exp',args.exp_series+'*')))
-    exp_list      = natsorted(glob.glob(os.path.join('experiments','workspace','train',args.exp_series+'*')))
-    # exp_list      = exp_list[:2]
-    
-    exp_name_list = [exp_name.split('/')[-1] for exp_name in exp_list]
-    stats_folder  = os.path.join('experiments','workspace','statistics',args.exp_series)
-    
-    os.makedirs(stats_folder, exist_ok=True)
-    for exp_name in exp_name_list:
-        os.makedirs(os.path.join(stats_folder, exp_name), exist_ok=True)
-    # writers = dict([(zc_name, imageio.get_writer(os.path.join(stats_folder,f'{zc_name}.mp4'), fps=4)) for zc_name in zc_function_list.keys()])
-    
-    print('[Roger] Statistics save path: ',      stats_folder)
-    print('[Roger] List of model checkpoints: ', epoch_model_list)
-    
-    # store_img = (img_list[IMG_IDX] * 255.0).int().permute(0,2,3,1).cpu().numpy()[...,::-1]
-    # cv2.imwrite(os.path.join(stats_folder, f'pair{IMG_IDX}_0.jpg'), store_img[0])
-    # cv2.imwrite(os.path.join(stats_folder, f'pair{IMG_IDX}_1.jpg'), store_img[1])
-    
-    
-    ####################################################
-    # Prepare Data To Be Plot
-    ####################################################
-    data = [
-        [{
-            'mean': {'x':[],'y':[]},
-            'var': {'x':[],'y':[]},
-            'min': {'x':[],'y':[]},
-            'max': {'x':[],'y':[]},
-            
-        } for i in range(NUM_STAGES)]
-        for j in range(len(exp_list))
-    ]
-    
-    
-    for model_idx, (exp_path, exp_name) in enumerate(zip(exp_list, exp_name_list)): # For different rand seed model
-        for epoch, model_file in enumerate(epoch_model_list):                       # For each epoch
-            epoch *= 2 
-            # model_path = os.path.join(exp_path, 'model_weights', model_file)
-            # print(f'Loading {model_path}')
-            # load_param = torch.load(model_path)
-            # model.load_state_dict(load_param)
-            # Load the pretrained checkpoint first
-            if epoch == 0:
-                model_path = os.path.join(exp_path, 'model_weights', 'model_init.pt')
-                print(f'Loading {model_path}')
-                # load_param = torch.load(model_path)
-                model.load_state_dict(torch.load(model_path), strict=False)
-            model_path = os.path.join(exp_path, 'model_weights', model_file)
-            print(f'Loading {model_path}')
-            # Then load the LoRA checkpoint
-            model.load_state_dict(torch.load(model_path), strict=False)
-            load_param = model.state_dict()
-
-            ###############################################
-            # Replaciable  Area
-            # Analyze Parameter
-            ###############################################
-            stage_statistics = analyze_param(load_param)
-            ###############################################
-            
-            # Store to data to facilitate plotting figure
-            for stage_idx, stage_stats in enumerate(stage_statistics):
-                for key in stage_stats.keys():
-                    if key == 'block_name': continue
-                    else:
-                        data[model_idx][stage_idx][key]['y'].append(stage_stats[key])
-                        data[model_idx][stage_idx][key]['x'].append(epoch)
-            print(data[model_idx])
-            
-                    
-        ###############################################
-        # Plotting Figure Inidividualy
-        ###############################################
-        # fig, axes = plt.subplots(4, 2, figsize=(8,10))
-        fig, axes = plt.subplots(3, 3, figsize=(20,24))
-        for stage_idx in range(NUM_STAGES):
-            row_idx = stage_idx // 3
-            col_idx = stage_idx %  3
-            print(f'data[{model_idx}][{stage_idx}]', data[model_idx][stage_idx])
-            
-            axes[row_idx, col_idx].plot(data[model_idx][stage_idx]['mean']['x'], data[model_idx][stage_idx]['mean']['y'], label='mean')
-            axes[row_idx, col_idx].plot(data[model_idx][stage_idx]['var']['x'], data[model_idx][stage_idx]['var']['y'],   label='var')
-            axes[row_idx, col_idx].set_title(f"Stage{stage_idx} Statistics")
-            axes[row_idx, col_idx].legend()
-            
-        plt.tight_layout()
-        plt.savefig(os.path.join(stats_folder, exp_name_list[model_idx], f'{exp_name}_param_analyze.jpg'), dpi=300)
-        plt.close(fig)
-
-
-
-    ###############################################
-    # Plotting Figure Together
-    ###############################################
-    # fig, axes = plt.subplots(4, 2, figsize=(16,20))
-    fig, axes = plt.subplots(3, 3, figsize=(20,24))
-    for stage_idx in range(NUM_STAGES):
-        for model_idx, exp_name in enumerate(exp_name_list):
-            exp_name = exp_name[-3:]
-            row_idx = stage_idx // 3
-            col_idx = stage_idx %  3
-            
-            axes[row_idx, col_idx].plot(data[model_idx][stage_idx]['mean']['x'], data[model_idx][stage_idx]['mean']['y'], label=f'mean-{exp_name}')
-            axes[row_idx, col_idx].plot(data[model_idx][stage_idx]['var']['x'],  data[model_idx][stage_idx]['var']['y'],   label=f'var-{exp_name}')
-            axes[row_idx, col_idx].set_title(f"Stage{stage_idx} Statistics")
-            axes[row_idx, col_idx].legend()
+        # Parse Epoch and Iteration
+        # idx_string = idx_string[1:-1]
+        # _, epoch_idx, iter_idx = idx_string.split('-')
+        # epoch_idx, iter_idx = int(epoch_idx), int(iter_idx)
         
-    plt.tight_layout()
-    plt.savefig(os.path.join(stats_folder, f'param_analyze.jpg'), dpi=300)
-    plt.close(fig)
+        # Parse Architecture Prob
+        # map = str(zc_map)
+        arch_prob_raw = ''.join(zc_map)
+        arch_prob_raw = arch_prob_raw.replace("gamma", "g").replace("n_bottlenecks", "n")
+        arch_prob_raw = arch_prob_raw.replace("inf", "0")
+        
 
-    with open(os.path.join(stats_folder, f'param_analyze.json'), 'w') as f:
-        json.dump(data, f)
+        # print(epoch_idx, iter_idx)
+        # if (epoch_idx==1 and iter_idx <= 50): continue
+        
+        arch = eval(arch_prob_raw)
+        # print(arch)
+        # if iter_idx % 200 == 0:
+        if True:
+            yield arch
+
+def analyze_map_func2(arch_info_list, img_filename):
+    # zc_maps1 = arch_info1['naswot_map']
+    # zc_maps2 = arch_info2['naswot_map']
+    # arch1    = arch_info1['arch']
+    # arch2    = arch_info2['arch']
+    write_img  = img_filename is not None
+    fig, axes = plt.subplots(8)
+    # fig, axes = plt.subplots(9)
+    fig.suptitle('Pruned zc scores')
+    # print(len(arch_info_list))
+    for stage_id in range(len(arch_info_list)):
+        score_list = []
+        rank_list = []
+        
+        keys = arch_info_list[stage_id].keys()
+        print(keys)
+        
+        # for idx, arch_info in enumerate(arch_info_list):
+        #     print(arch_info)
+        zc_map = arch_info_list[stage_id]
+        print(zc_map)
+        score  = np.array([zc_map[key] for key in keys])
+        rank   = (-score ).argsort()[::-1]
+        
+        score_list.append(score)
+        rank_list.append(rank)
+
+        candidiate_num  = len(rank)
+        comp_list  = score_list
+        color_list = ['r', 'g', 'b', 'c', 'k', 'm']
+        # arch_list  = [arch_info['arch'] for arch_info in arch_info_list]
+        x = np.arange(candidiate_num) * 0.8
+        
+        with_val = 0.1
+        for i, score_arr in enumerate(comp_list):
+            axes[stage_id].bar(x - with_val* (i-len(comp_list)/3), height=score_arr, width=with_val, color=[color_list[i]]*candidiate_num, align='edge')
+        #######################################
+        # Basic Math Information
+        #######################################
+        margin = 0.2
+        all_scores = np.concatenate(comp_list)
+        center  = all_scores.mean()
+        min_val = all_scores.min() - 0.05
+        max_val = all_scores.max() + 0.05
+        
+        #######################################
+        # Set Plot Style
+        #######################################
+        axes[stage_id].set_ylim([min_val, max_val])
+        axes[stage_id].set_xticks(x, list(keys))
+        axes[stage_id].set_ylabel(f'Depth={stage_id}')
+        axes[stage_id].legend([f'Arch{stage}' for stage in range(len(comp_list))], labelcolor=color_list)
+        
+        for ii in range(3,11,4): axes[stage_id].axvline((ii+0.5)*0.8, color='black')
+        arr_size  = (max_val-min_val)*with_val
+        
+        # Rank Plot
+        for ii, (rank, score, color) in enumerate(zip(rank_list,comp_list,color_list)):
+            for iii in range(4):
+                loc = x[rank[iii]] - with_val * (ii-len(comp_list)/3) #+ 0.024
+                axes[stage_id].text(loc, score[rank[iii]]-arr_size*1.2, str(iii+1), color=color)
+
+    fig.set_size_inches(15.5, 15.5)
+    fig.tight_layout()
+    fig.savefig(img_filename)
+    # plt.tight_layout()
+    # plt.savefig(img_filename, dpi=300)
+    # plt.close(fig)
+    # fig.set_size_inches(15.5, 15.5)
+    # fig.tight_layout()
+    # fig.savefig(img_filename)
+    # if img_filename is not None: 
+    # return fig
+
+def analyze_ranking_epoch_info(model, args, zero_cost_func):
+    IMAGE_IDX = 0
+    NUM_STAGES = len(model.searchable_block_idx)
+
+    searchable_block_name = [f'blocks.{block_id}' for block_id in model.searchable_block_idx ]
+    print('searchable_block_name', searchable_block_name)
+
+    model.load_state_dict(torch.load(args.pre_weights))
+
+    model.eval()
+    zc_map = analyze_zcmap(model, zero_cost_func, IMAGE_IDX)
+
+    gen = arch_generator(zc_map)
+    # print(gen)
+    # for idx_info, arch in gen:
+            # print(f'idx_string={idx_info}')
+    for arch in gen:
+        # print(arch)
+        analyze_map_func2(arch, 'zc_score.jpg')
+        # analyze_map_func2([{'naswot_map': gen}], 'zc_score.jpg')
+
+
 
 def parse_config_args(exp_name):
     parser = argparse.ArgumentParser(description=exp_name)
@@ -219,7 +196,7 @@ def parse_config_args(exp_name):
     parser.add_argument('--hyp',  type=str, default='config/training/hyp.zerocost.yaml', help='hyperparameters path, i.e. data/hyp.scratch.yaml')
     parser.add_argument('--model',type=str, default='config/model/Search-YOLOv4-CSP.yaml',       help='model path')
     parser.add_argument('--exp_series', type=str, default='exp_series', help="name of experiments")
-    # parser.add_argument('--nas',  type=str, help='NAS-Search-Space and hardware constraint combination')
+    parser.add_argument('--pre_weights', type=str, default='', help='pretrained model weights')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--zc', type=str, default='naswot', help='zero cost metrics')
     
@@ -396,29 +373,22 @@ def main():
     ##################################################################
     ### Choice a Zero-Cost Method
     ##################################################################  
+    model.eval() 
+    prob = model.softmax_sampling(detach=True)
     
-    
-    
-    model.eval()  
     from lib.zero_proxy import naswot, snip
     PROXY_DICT = {
         'naswot': naswot.calculate_zero_cost_map2,
-        'snip':   snip.calculate_zero_cost_map,
-        
+        'snip':   snip.calculate_zero_cost_map,    
     }
-    if args.zc not in PROXY_DICT.keys():
-        raise Value(f"key {args.zc} is not registered in PROXY_DICT")
-    zc_func = PROXY_DICT[args.zc]
-    IMG_IDX = 0
-    
-    prob = model.softmax_sampling(detach=True)
     zc_function_list = {
         'naswot':  lambda arch_prob, idx, short_name=None: PROXY_DICT['naswot'](model, arch_prob, img_pairs[idx][:2], target_pairs[idx][:2], short_name=short_name),
         'snip':    lambda arch_prob, idx, short_name=None: PROXY_DICT['snip'](model, arch_prob, img_pairs[idx], target_pairs[idx], short_name=short_name),
-        # 'synflow': lambda arch_prob: PROXY_DICT['synflow'](model, arch_prob, imgs, targets, None),
     }
+    if args.zc not in PROXY_DICT.keys():
+        raise Value(f"key {args.zc} is not registered in PROXY_DICT")
     
-    analyze_parameter_epoch_info(model,args,img_pairs, target_pairs)
+    analyze_ranking_epoch_info(model, args, zc_function_list[args.zc])
     
 if __name__ == '__main__':
     main()

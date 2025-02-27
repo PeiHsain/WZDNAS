@@ -124,6 +124,7 @@ class SuperNet(nn.Module):
         DEBUG=False
         if not DEBUG:
             algorithm_type = get_algorithm_type()
+            print(algorithm_type)
             if algorithm_type == 'ZeroDNAS_Egor':
                 efficientnet_init_weights(self)
             elif algorithm_type == 'DNAS' or algorithm_type =='ZeroCost':
@@ -270,7 +271,9 @@ class SuperNet(nn.Module):
         # Initialize Backbone
         for m in self.modules():
             t = type(m)
+            # print(t)
             if t is nn.Conv2d:
+                # print(t)
                 if first: continue
                 # pass  # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))

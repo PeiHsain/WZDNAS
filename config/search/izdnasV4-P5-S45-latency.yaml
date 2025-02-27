@@ -1,6 +1,6 @@
 MODEL: 'Supernet_Training'
 SAVE_PATH: './experiments/workspace/train'
-SEED: 42 #44 #43 #42
+SEED: 45 #44 #43 #42
 LOCAL_RANK: -1
 
 ##############################################################################
@@ -46,7 +46,7 @@ STAGE2:
   ALPHA: 0.005 #0.005 #flops
   GAMMA: 0.05 #0.01 #0.007 #0.03 #zc
   THETA: 0.002 #latency
-  OMEGA: 0.001 #depth
+  OMEGA: 0.0 #depth
   
   TEMPERATURE:
     INIT: 5.0 #3.0 #4.0  # 1.5  # 2.5  # 5.0

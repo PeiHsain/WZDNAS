@@ -1,0 +1,391 @@
+stage:1-gamma:0.25-depth:2: 
+  latency: 9.4051
+  mean: 9.4051
+  variance: 0.0
+stage:1-gamma:0.25-depth:4: 
+  latency: 11.2267
+  mean: 11.2267
+  variance: 0.0
+stage:1-gamma:0.25-depth:6: 
+  latency: 13.256
+  mean: 13.256
+  variance: 0.0
+stage:1-gamma:0.25-depth:8: 
+  latency: 15.3282
+  mean: 15.3282
+  variance: 0.0
+stage:1-gamma:0.5-depth:2: 
+  latency: 15.3319
+  mean: 15.3319
+  variance: 0.0
+stage:1-gamma:0.5-depth:4: 
+  latency: 22.2931
+  mean: 22.2931
+  variance: 0.0
+stage:1-gamma:0.5-depth:6: 
+  latency: 28.0527
+  mean: 28.0527
+  variance: 0.0
+stage:1-gamma:0.5-depth:8: 
+  latency: 34.5821
+  mean: 34.5821
+  variance: 0.0
+stage:1-gamma:0.75-depth:2: 
+  latency: 24.4439
+  mean: 24.4439
+  variance: 0.0
+stage:1-gamma:0.75-depth:4: 
+  latency: 38.7567
+  mean: 38.7567
+  variance: 0.0
+stage:1-gamma:0.75-depth:6: 
+  latency: 51.5193
+  mean: 51.5193
+  variance: 0.0
+stage:1-gamma:0.75-depth:8: 
+  latency: 65.8835
+  mean: 65.8835
+  variance: 0.0
+
+stage:2-gamma:0.25-depth:2: 
+  latency: 9.3098
+  mean: 9.3098
+  variance: 0.0
+stage:2-gamma:0.25-depth:4: 
+  latency: 11.3217
+  mean: 11.3217
+  variance: 0.0
+stage:2-gamma:0.25-depth:6: 
+  latency: 12.8942
+  mean: 12.8942
+  variance: 0.0
+stage:2-gamma:0.25-depth:8: 
+  latency: 14.9089
+  mean: 14.9089
+  variance: 0.0
+stage:2-gamma:0.5-depth:2: 
+  latency: 15.4185
+  mean: 15.4185
+  variance: 0.0
+stage:2-gamma:0.5-depth:4: 
+  latency: 22.2238
+  mean: 22.2238
+  variance: 0.0
+stage:2-gamma:0.5-depth:6: 
+  latency: 28.5115
+  mean: 28.5115
+  variance: 0.0
+stage:2-gamma:0.5-depth:8: 
+  latency: 34.5873
+  mean: 34.5873
+  variance: 0.0
+stage:2-gamma:0.75-depth:2: 
+  latency: 24.0793
+  mean: 24.0793
+  variance: 0.0
+stage:2-gamma:0.75-depth:4: 
+  latency: 39.095
+  mean: 39.095
+  variance: 0.0
+stage:2-gamma:0.75-depth:6: 
+  latency: 51.7084
+  mean: 51.7084
+  variance: 0.0
+stage:2-gamma:0.75-depth:8: 
+  latency: 65.526
+  mean: 65.526
+  variance: 0.0
+
+stage:3-gamma:0.25-depth:2: 
+  latency: 9.6252
+  mean: 9.6252
+  variance: 0.0
+stage:3-gamma:0.25-depth:4: 
+  latency: 11.8563
+  mean: 11.8563
+  variance: 0.0
+stage:3-gamma:0.25-depth:6: 
+  latency: 13.3917
+  mean: 13.3917
+  variance: 0.0
+stage:3-gamma:0.25-depth:8: 
+  latency: 15.314
+  mean: 15.314
+  variance: 0.0
+stage:3-gamma:0.5-depth:2: 
+  latency: 16.5987
+  mean: 16.5987
+  variance: 0.0
+stage:3-gamma:0.5-depth:4: 
+  latency: 23.8229
+  mean: 23.8229
+  variance: 0.0
+stage:3-gamma:0.5-depth:6: 
+  latency: 30.7433
+  mean: 30.7433
+  variance: 0.0
+stage:3-gamma:0.5-depth:8: 
+  latency: 38.7952
+  mean: 38.7952
+  variance: 0.0
+stage:3-gamma:0.75-depth:2: 
+  latency: 26.9996
+  mean: 26.9996
+  variance: 0.0
+stage:3-gamma:0.75-depth:4: 
+  latency: 42.3376
+  mean: 42.3376
+  variance: 0.0
+stage:3-gamma:0.75-depth:6: 
+  latency: 59.42
+  mean: 59.42
+  variance: 0.0
+stage:3-gamma:0.75-depth:8: 
+  latency: 75.0046
+  mean: 75.0046
+  variance: 0.0
+
+stage:4-gamma:0.25-depth:2: 
+  latency: 14.4979
+  mean: 14.4979
+  variance: 0.0
+stage:4-gamma:0.25-depth:4: 
+  latency: 18.1735
+  mean: 18.173
+  variance: 0.0
+stage:4-gamma:0.25-depth:6: 
+  latency: 21.0268
+  mean: 21.0268
+  variance: 0.0
+stage:4-gamma:0.25-depth:8: 
+  latency: 25.1294
+  mean: 25.1294
+  variance: 0.0
+stage:4-gamma:0.5-depth:2: 
+  latency: 25.4668
+  mean: 25.4668
+  variance: 0.0
+stage:4-gamma:0.5-depth:4: 
+  latency: 39.0319
+  mean: 39.0319
+  variance: 0.0
+stage:4-gamma:0.5-depth:6: 
+  latency: 50.2077
+  mean: 50.2077
+  variance: 0.0
+stage:4-gamma:0.5-depth:8: 
+  latency: 63.1857
+  mean: 63.1857
+  variance: 0.0
+stage:4-gamma:0.75-depth:2: 
+  latency: 38.2317
+  mean: 38.2317
+  variance: 0.0
+stage:4-gamma:0.75-depth:4: 
+  latency: 54.1923
+  mean: 54.1923
+  variance: 0.0
+stage:4-gamma:0.75-depth:6: 
+  latency: 74.4153
+  mean: 74.4153
+  variance: 0.0
+stage:4-gamma:0.75-depth:8: 
+  latency: 94.044
+  mean: 94.044
+  variance: 0.0
+
+stage:5-gamma:0.25-depth:0: 
+  latency: 1.2649
+  mean: 1.2649
+  variance: 0.0
+stage:5-gamma:0.25-depth:2: 
+  latency: 5.2926
+  mean: 5.2926
+  variance: 0.0
+stage:5-gamma:0.25-depth:4: 
+  latency: 8.9882
+  mean: 8.9882
+  variance: 0.0
+stage:5-gamma:0.25-depth:6: 
+  latency: 12.9095
+  mean: 12.9095
+  variance: 0.0
+stage:5-gamma:0.5-depth:0: 
+  latency: 1.7606
+  mean: 1.7606
+  variance: 0.0
+stage:5-gamma:0.5-depth:2: 
+  latency: 8.9733
+  mean: 8.9733
+  variance: 0.0
+stage:5-gamma:0.5-depth:4: 
+  latency: 16.3448
+  mean: 16.3448
+  variance: 0.0
+stage:5-gamma:0.5-depth:6: 
+  latency: 23.223
+  mean: 23.223
+  variance: 0.0
+stage:5-gamma:0.75-depth:0: 
+  latency: 2.3551
+  mean: 2.3551
+  variance: 0.0
+stage:5-gamma:0.75-depth:2: 
+  latency: 13.1802
+  mean: 13.1802
+  variance: 0.0
+stage:5-gamma:0.75-depth:4: 
+  latency: 24.4586
+  mean: 24.4586
+  variance: 0.0
+stage:5-gamma:0.75-depth:6: 
+  latency: 35.4233
+  mean: 35.4233
+  variance: 0.0
+
+stage:6-gamma:0.25-depth:0: 
+  latency: 1.3815
+  mean: 1.3815
+  variance: 0.0
+stage:6-gamma:0.25-depth:2: 
+  latency: 5.37
+  mean: 5.37
+  variance: 0.0
+stage:6-gamma:0.25-depth:4: 
+  latency: 9.1026
+  mean: 9.1026
+  variance: 0.0
+stage:6-gamma:0.25-depth:6: 
+  latency: 13.0952
+  mean: 13.0952
+  variance: 0.0
+stage:6-gamma:0.5-depth:0: 
+  latency: 1.7884
+  mean: 1.7884
+  variance: 0.0
+stage:6-gamma:0.5-depth:2: 
+  latency: 8.3521
+  mean: 8.3521
+  variance: 0.0
+stage:6-gamma:0.5-depth:4: 
+  latency: 14.4386
+  mean: 14.4386
+  variance: 0.0
+stage:6-gamma:0.5-depth:6: 
+  latency: 21.024
+  mean: 21.024
+  variance: 0.0
+stage:6-gamma:0.75-depth:0: 
+  latency: 2.4254
+  mean: 2.4254
+  variance: 0.0
+stage:6-gamma:0.75-depth:2: 
+  latency: 13.2428
+  mean: 13.2428
+  variance: 0.0
+stage:6-gamma:0.75-depth:4: 
+  latency: 23.2356
+  mean: 23.2356
+  variance: 0.0
+stage:6-gamma:0.75-depth:6: 
+  latency: 33.6495
+  mean: 33.6495
+  variance: 0.0
+
+stage:7-gamma:0.25-depth:0: 
+  latency: 1.2656
+  mean: 1.2656
+  variance: 0.0
+stage:7-gamma:0.25-depth:2: 
+  latency: 5.2103
+  mean: 5.2103
+  variance: 0.0
+stage:7-gamma:0.25-depth:4: 
+  latency: 8.9819
+  mean: 8.9819
+  variance: 0.0
+stage:7-gamma:0.25-depth:6: 
+  latency: 12.897
+  mean: 12.897
+  variance: 0.0
+stage:7-gamma:0.5-depth:0: 
+  latency: 1.7996
+  mean: 1.7996
+  variance: 0.0
+stage:7-gamma:0.5-depth:2: 
+  latency: 8.8655
+  mean: 8.8655
+  variance: 0.0
+stage:7-gamma:0.5-depth:4: 
+  latency: 16.4301
+  mean: 16.4301
+  variance: 0.0
+stage:7-gamma:0.5-depth:6: 
+  latency: 22.9703
+  mean: 22.9703
+  variance: 0.0
+stage:7-gamma:0.75-depth:0: 
+  latency: 2.3354
+  mean: 2.3354
+  variance: 0.0
+stage:7-gamma:0.75-depth:2: 
+  latency: 13.5783
+  mean: 13.5783
+  variance: 0.0
+stage:7-gamma:0.75-depth:4: 
+  latency: 24.3861
+  mean: 24.3861
+  variance: 0.0
+stage:7-gamma:0.75-depth:6: 
+  latency: 35.1752
+  mean: 35.1752
+  variance: 0.0
+
+stage:8-gamma:0.25-depth:0: 
+  latency: 1.8133
+  mean: 1.8133
+  variance: 0.0
+stage:8-gamma:0.25-depth:2: 
+  latency: 7.4597
+  mean: 7.4597
+  variance: 0.0
+stage:8-gamma:0.25-depth:4: 
+  latency: 13.275
+  mean: 13.275
+  variance: 0.0
+stage:8-gamma:0.25-depth:6: 
+  latency: 19.2732
+  mean: 19.2732
+  variance: 0.0
+stage:8-gamma:0.5-depth:0: 
+  latency: 2.8093
+  mean: 2.8093
+  variance: 0.0
+stage:8-gamma:0.5-depth:2: 
+  latency: 15.2355
+  mean: 15.2355
+  variance: 0.0
+stage:8-gamma:0.5-depth:4: 
+  latency: 28.3655
+  mean: 28.3655
+  variance: 0.0
+stage:8-gamma:0.5-depth:6: 
+  latency: 19.2732
+  mean: 19.2732
+  variance: 0.0
+stage:8-gamma:0.75-depth:0: 
+  latency: 3.3352
+  mean: 3.3352
+  variance: 0.0
+stage:8-gamma:0.75-depth:2: 
+  latency: 20.6112
+  mean: 20.6112
+  variance: 0.0
+stage:8-gamma:0.75-depth:4: 
+  latency: 37.1583
+  mean: 37.1583
+  variance: 0.0
+stage:8-gamma:0.75-depth:6: 
+  latency: 53.7937
+  mean: 53.7937
+  variance: 0.0

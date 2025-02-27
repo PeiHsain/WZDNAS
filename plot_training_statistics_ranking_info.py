@@ -82,19 +82,22 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
     IMAGE_IDX = 0
     NUM_STAGES = len(model.searchable_block_idx)
     
-    if 'YOLOv4' in args.model: 
-        model_series = 'v4-Experiments'
-    elif 'YOLOv7' in args.model:
-        model_series = 'v7-Experiments'
-    else:
-        raise ValueError("123")
+    # if 'YOLOv4' in args.model: 
+    #     model_series = 'v4-Experiments'
+    # elif 'YOLOv7' in args.model:
+    #     model_series = 'v7-Experiments'
+    # else:
+    #     raise ValueError("123")
         
-    exp_list      = natsorted(glob.glob(os.path.join('experiments','workspace','valid_exp',model_series,args.exp_series+'*')))
+    # exp_list      = natsorted(glob.glob(os.path.join('experiments','workspace','valid_exp',model_series,args.exp_series+'*')))
     # exp_list      = exp_list[:2]
+    exp_list      = natsorted(glob.glob(os.path.join('experiments','workspace','train',args.exp_series+'*')))
     
-    epoch_model_list = natsorted(glob.glob(os.path.join(exp_list[0] , 'model_weights', 'ema*')))
+    # epoch_model_list = natsorted(glob.glob(os.path.join(exp_list[0] , 'model_weights', 'ema*')))
+    epoch_model_list = natsorted(glob.glob(os.path.join(exp_list[0] , 'model_weights', 'lora*')))
     print(epoch_model_list)
-    epoch_model_list = ['model_init.pt'] + [os.path.basename(full_path) for full_path in (epoch_model_list)]
+    # epoch_model_list = ['model_init.pt'] + [os.path.basename(full_path) for full_path in (epoch_model_list)]
+    epoch_model_list = [os.path.basename(full_path) for full_path in (epoch_model_list)]
     # epoch_model_list = epoch_model_list[:2]
     
     exp_name_list = [exp_name.split('/')[-1] for exp_name in exp_list]
@@ -145,9 +148,19 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
     for epoch_idx, model_file in enumerate(epoch_model_list):                       # For each epoch
         epoch = epoch_idx * 2 
         for model_idx, (exp_path, exp_name) in enumerate(zip(exp_list, exp_name_list)): # For different rand seed model
+            # model_path = os.path.join(exp_path, 'model_weights', model_file)
+            # print(f'Loading {model_path}')
+            # model.load_state_dict(torch.load(model_path))
+            # Load the pretrained checkpoint first
+            if epoch_idx == 0:
+                model_path = os.path.join(exp_path, 'model_weights', 'model_init.pt')
+                print(f'Loading {model_path}')
+                model.load_state_dict(torch.load(model_path), strict=False)
             model_path = os.path.join(exp_path, 'model_weights', model_file)
             print(f'Loading {model_path}')
-            model.load_state_dict(torch.load(model_path))
+            # model.load_state_dict(torch.load(model_path))
+            # Then load the LoRA checkpoint
+            model.load_state_dict(torch.load(model_path), strict=False)
             
             ###############################################
             # Replaciable  Area
@@ -195,13 +208,14 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
     ###############################################
     # Plotting Kendal tau for each stage
     ###############################################
-    fig, axes = plt.subplots(4, 2, figsize=(16,20))
+    # fig, axes = plt.subplots(4, 2, figsize=(16,20))
+    fig, axes = plt.subplots(3, 3, figsize=(20,24))
     for stage_idx in range(NUM_STAGES):
         ###################
         # Draw Figure
         ###################
-        row_idx = stage_idx // 2
-        col_idx = stage_idx %  2
+        row_idx = stage_idx // 3
+        col_idx = stage_idx %  3
         
         color = 'tab:red'
         axes[row_idx,  col_idx].plot(data2[stage_idx]['tau']['x'], data2[stage_idx]['tau']['y'], label=f'tau', color = color)

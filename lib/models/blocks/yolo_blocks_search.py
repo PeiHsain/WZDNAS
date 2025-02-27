@@ -4,13 +4,18 @@ import torch
 import copy
 import torch.nn as nn
 import numpy as np
+from loralib import ConvLoRA
 from mish_cuda import MishCuda as Mish
-from torch.nn import ReLU, LeakyReLU, SiLU
+# from torch.nn import ReLU, LeakyReLU, SiLU
 
 from lib.utils.synflow import synflow, sum_arr
-from lib.models.blocks.yolo_blocks import Conv, Bottleneck, DEFAULT_ACTIVATION, V4_DEFAULT_ACTIVATION, V7_DEFAULT_ACTIVATION, DEFAULT_NORMALIZATION
-# import math
+from lib.models.blocks.yolo_blocks import Conv_LoRA, Conv_Normal, Conv, Bottleneck_Normal, Bottleneck, DEFAULT_ACTIVATION, V4_DEFAULT_ACTIVATION, V7_DEFAULT_ACTIVATION, DEFAULT_NORMALIZATION
+from lib.models.blocks.lora_prune import ABConv, LPConv
 
+# LoRA rank, alpha
+LORA_RAN_BASE = 4
+LORA_RANK = 16
+LORA_ALPHA_BASE = 2
 TYPE = None # ZeroDNAS_Egor or DNAS or ZeroCost
 SHOW_FEATURE_STATS = False
 ############################################
@@ -141,11 +146,26 @@ class BottleneckCSP_Search(GeneralOpeartor_Search):
         n = max(bottleneck_space)
         
         ########################################################################################
+        # LORA_RANK = int(c_ // LORA_RAN_BASE)
+        # # LORA_RANK = int(c_ // 2)
+        # LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
+        # self.cv1 = Conv_LoRA(c1, c_, 1, 1)
         self.cv2 = nn.Conv2d(c1, c_, 1, 1, bias=False)
+        # LORA_RANK = int(c1 // LORA_RAN_BASE)
+        # LORA_ALPHA = LORA_RANK * LORA_ALPHA_BASE
+        # # self.cv2 = LPConv(c1, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # # self.cv2 = ConvLoRA(nn.Conv2d, c1, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # self.cv2 = ABConv(c1, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
         self.cv3 = nn.Conv2d(c_, c_, 1, 1, bias=False)
+        # LORA_RANK = int(c_ // LORA_RAN_BASE)
+        # LORA_ALPHA = LORA_RANK * LORA_ALPHA_BASE
+        # # self.cv3 = LPConv(c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # # self.cv3 = ConvLoRA(nn.Conv2d, c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # self.cv3 = ABConv(c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
         self.cv4 = Conv(2 * c_, c2, 1, 1)
+        # self.cv4 = Conv_LoRA(2 * c_, c2, 1, 1)
         self.bn  = DEFAULT_NORMALIZATION(2 * c_)
         self.act = ACTIVATION[act]()
         
@@ -292,13 +312,23 @@ class BottleneckCSP2_Search(GeneralOpeartor_Search):
         n = max(bottleneck_space) 
         
         ########################################################################################
+        # LORA_RANK = int(c_ // LORA_RAN_BASE)
+        # # LORA_RANK = int(c_ // 2)
+        # LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
         c_ = int(c2 * (e + 0.5))  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
+        # self.cv1 = Conv_LoRA(c1, c_, 1, 1)
         self.cv2 = nn.Conv2d(c_, c_, 1, 1, bias=False)
+        # LORA_RANK = int(c_ // LORA_RAN_BASE)
+        # LORA_ALPHA = LORA_RANK * LORA_ALPHA_BASE
+        # # self.cv2 = LPConv(c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # # self.cv2 = ConvLoRA(nn.Conv2d, c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # self.cv2 = ABConv(c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
         self.cv3 = Conv(2 * c_, c2, 1, 1)
+        # self.cv3 = Conv_LoRA(2 * c_, c2, 1, 1)
         self.bn  = DEFAULT_NORMALIZATION(2 * c_)
         self.act = ACTIVATION[act]()
-        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+        self.m = nn.Sequential(*[Bottleneck_Normal(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
         self.block_name = f'{self.__class__.__name__}_n{n}g{e}'
         ########################################################################################
         

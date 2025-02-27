@@ -1,4 +1,6 @@
 import math
+# import loralib as lora
+from loralib import ConvLoRA
 
 import torch
 import torch.nn as nn
@@ -6,6 +8,7 @@ from mish_cuda import MishCuda as Mish
 from torch.nn import ReLU, LeakyReLU, SiLU
 import copy
 from lib.utils.synflow import synflow, sum_arr
+from lib.models.blocks.lora_prune import ABConv, LPConv
 
 # Importance Note !!!!!!!!!!!
 # When Using Bottleneck CSP, we should set both DEFAULT_ACTIVATION and V4_DEFAULT_ACTIVATION to Mish
@@ -20,6 +23,10 @@ DEFAULT_NORMALIZATION = lambda in_chs: nn.BatchNorm2d(in_chs)
 V4_DEFAULT_ACTIVATION = Mish # BottleneckCSP BottleneckCSP2,
 V7_DEFAULT_ACTIVATION = SiLU # RepConv, ELAN, ELAN2
 
+# LoRA rank, alpha
+LORA_RAN_BASE = 4
+LORA_RANK = 32
+LORA_ALPHA_BASE = 2
 
 
 TYPE = 'DNAS' # ZeroDNAS_Egor or DNAS or ZeroCost
@@ -61,20 +68,26 @@ def DWConv(c1, c2, k=1, s=1, act=True):
     # Depthwise convolution
     return Conv(c1, c2, k, s, g=math.gcd(c1, c2), act=act)
 
-class Conv(nn.Module):
+
+class Conv_LoRA(nn.Module):
     # Standard convolution
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, bn=True):  # ch_in, ch_out, kernel, stride, padding, groups
-        super(Conv, self).__init__()
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, bn=True, rank=16):  # ch_in, ch_out, kernel, stride, padding, groups
+        super(Conv_LoRA, self).__init__()
         self.act = DEFAULT_ACTIVATION() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
         self.bn  = DEFAULT_NORMALIZATION(c2) if bn is True else (bn if isinstance(bn, nn.Module) else nn.Identity())
         
-        if isinstance(bn, nn.BatchNorm2d) or isinstance(bn, nn.GroupNorm):
-            with_bias = False
-        else:
-            with_bias = True
-        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=with_bias)
+        # if isinstance(bn, nn.BatchNorm2d) or isinstance(bn, nn.GroupNorm):
+        #     with_bias = False
+        # else:
+        #     with_bias = True
+        with_bias = False
+        # self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=with_bias)
+        # (self, conv_module, in_channels, out_channels, kernel_size, r=0, lora_alpha=1, lora_dropout=0., merge_weights=True, **kwargs)
+        LORA_RANK = int(c1 // LORA_RAN_BASE)
+        LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
+        # self.conv = LPConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=with_bias)
+        self.conv = ConvLoRA(nn.Conv2d, c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=with_bias)
         self.block_name = f'cn_k{k}_s{s}'
-
 
     def get_block_name(self):
         return self.block_name
@@ -85,12 +98,83 @@ class Conv(nn.Module):
     def fuseforward(self, x):
         return self.act(self.conv(x))
 
+class Conv_Normal(nn.Module):
+    # Standard convolution
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, bn=True):  # ch_in, ch_out, kernel, stride, padding, groups
+        super(Conv_Normal, self).__init__()
+        self.act = DEFAULT_ACTIVATION() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.bn  = DEFAULT_NORMALIZATION(c2) if bn is True else (bn if isinstance(bn, nn.Module) else nn.Identity())
+        
+        # if isinstance(bn, nn.BatchNorm2d) or isinstance(bn, nn.GroupNorm):
+        #     with_bias = False
+        # else:
+        #     with_bias = True
+        with_bias = False
+
+        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=with_bias)
+        self.block_name = f'cn_k{k}_s{s}'
+
+    def get_block_name(self):
+        return self.block_name
+
+    def forward(self, x, masks=1.0):
+        return self.act(self.bn(self.conv(x)) * masks)
+
+    def fuseforward(self, x):
+        return self.act(self.conv(x))
+
+class Conv(nn.Module):
+    # Standard convolution
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, bn=True):  # ch_in, ch_out, kernel, stride, padding, groups
+        super(Conv, self).__init__()
+        self.act = DEFAULT_ACTIVATION() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.bn  = DEFAULT_NORMALIZATION(c2) if bn is True else (bn if isinstance(bn, nn.Module) else nn.Identity())
+        
+        # if isinstance(bn, nn.BatchNorm2d) or isinstance(bn, nn.GroupNorm):
+        #     with_bias = False
+        # else:
+        #     with_bias = True
+        with_bias = False
+
+        if k == 1:
+            self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=with_bias)
+        else:
+            # Replace 3*3 convolution into depthwise
+            LORA_RANK = int(c1 // LORA_RAN_BASE)
+            # print(LORA_RANK)
+            if LORA_RANK == 0:
+                LORA_RANK = 1
+                # print(LORA_RANK)
+            LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
+            # self.conv = LPConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=with_bias)
+            # self.conv = ConvLoRA(nn.Conv2d, c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=with_bias)
+            self.conv = ABConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=with_bias)
+        self.block_name = f'cn_k{k}_s{s}'
+
+    def get_block_name(self):
+        return self.block_name
+
+    def forward(self, x, masks=1.0):
+        # print(f"Before conv: {x.shape if x is not None else 'None'}")
+        # print(f"After conv: {self.conv(x).shape if self.conv(x) is not None else 'None'}")
+        return self.act(self.bn(self.conv(x)) * masks)
+
+    def fuseforward(self, x):
+        return self.act(self.conv(x))
+
 
 class ConvNP(nn.Module):
     # Not Prunable
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
         super(ConvNP, self).__init__()
-        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
+        if k == 1:
+            self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
+        else:
+            LORA_RANK = int(c1 // LORA_RAN_BASE)
+            LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
+            # self.conv = LPConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=False)
+            # self.conv = ConvLoRA(nn.Conv2d, c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=False)
+            self.conv = ABConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=False)
         if TYPE=='ZeroDNAS_Egor' or TYPE=='ZeroCost':
             self.bn = nn.GroupNorm(1, c2)
             self.act = DEFAULT_ACTIVATION() if act else nn.Identity()
@@ -111,13 +195,37 @@ class ConvNP(nn.Module):
     def fuseforward(self, x):
         return self.act(self.conv(x))
     
+class Bottleneck_Normal(nn.Module):
+    # Standard bottleneck
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5, rank=0):  # ch_in, ch_out, shortcut, groups, expansion
+        super(Bottleneck_Normal, self).__init__()
+        c_ = int(c2 * e)  # hidden channels
+        # if rank <= 0:
+        self.cv1 = Conv_Normal(c1, c_, 1, 1)
+        self.cv2 = Conv_Normal(c_, c2, 3, 1, g=g)
+        # else:
+        #     self.cv1 = Conv_LoRA(c1, c_, 1, 1, rank=rank)
+        #     self.cv2 = Conv_LoRA(c_, c2, 3, 1, g=g, rank=rank)
+        self.add = shortcut and c1 == c2
+        self.block_name = f'bottle'
+
+    def get_block_name(self):
+        return self.block_name
+
+    def forward(self, x, mask=1.0):
+        return x + self.cv2(self.cv1(x, mask), mask) if self.add else self.cv2(self.cv1(x, mask), mask)
+
 class Bottleneck(nn.Module):
     # Standard bottleneck
-    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5, rank=0):  # ch_in, ch_out, shortcut, groups, expansion
         super(Bottleneck, self).__init__()
         c_ = int(c2 * e)  # hidden channels
+        # if rank <= 0:
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c_, c2, 3, 1, g=g)
+        # else:
+        #     self.cv1 = Conv_LoRA(c1, c_, 1, 1, rank=rank)
+        #     self.cv2 = Conv_LoRA(c_, c2, 3, 1, g=g, rank=rank)
         self.add = shortcut and c1 == c2
         self.block_name = f'bottle'
 
@@ -149,11 +257,21 @@ class BottleneckCSP(nn.Module):
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = nn.Conv2d(c1, c_, 1, 1, bias=False)
+        # LORA_RANK = int(c1 // LORA_RAN_BASE)
+        # LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
+        # # self.cv2 = LPConv(c1, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # # self.cv2 = ConvLoRA(nn.Conv2d, c1, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # self.cv2 = ABConv(c1, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
         self.cv3 = nn.Conv2d(c_, c_, 1, 1, bias=False)
+        # LORA_RANK = int(c_ // LORA_RAN_BASE)
+        # LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
+        # # self.cv3 = LPConv(c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # # self.cv3 = ConvLoRA(nn.Conv2d, c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # self.cv3 = ABConv(c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
         self.cv4 = Conv(2 * c_, c2, 1, 1)
         self.bn = DEFAULT_NORMALIZATION(2 * c_)  # applied to cat(cv2, cv3)
         self.act = V4_DEFAULT_ACTIVATION()
-        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0, rank=(c_ // LORA_RAN_BASE)) for _ in range(n)])
         self.block_name = f'bottlecsp_num{n}_gamma{e}'
         
     def forward(self, x):
@@ -199,7 +317,7 @@ class C3(nn.Module):
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c1, c_, 1, 1)
         self.cv3 = Conv(2 * c_, c2, 1)  # act=FReLU(c2)
-        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0, rank=0) for _ in range(n)])
         # self.m = nn.Sequential(*[CrossConv(c_, c_, 3, 1, g, 1.0, shortcut) for _ in range(n)])
         self.block_name = f'c3_num{n}_gamma{e}'
 
@@ -242,10 +360,15 @@ class BottleneckCSP2(nn.Module):
         c_ = int(c2 * (e+0.5))  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = nn.Conv2d(c_, c_, 1, 1, bias=False)
+        # LORA_RANK = int(c_ // LORA_RAN_BASE)
+        # LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
+        # # self.cv2 = LPConv(c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # # self.cv2 = ConvLoRA(nn.Conv2d, c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # self.cv2 = ABConv(c_, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
         self.cv3 = Conv(2 * c_, c2, 1, 1)
         self.bn = DEFAULT_NORMALIZATION(2 * c_) 
         self.act = V4_DEFAULT_ACTIVATION()
-        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0, rank=(c_ // LORA_RAN_BASE)) for _ in range(n)])
         self.block_name = f'bottlecsp2_num{n}_gamma{e}'
         
     def forward(self, x):
@@ -321,16 +444,27 @@ class SPPCSP(nn.Module):
         super(SPPCSP, self).__init__()
         c_ = int(2 * c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
+        # self.cv1 = Conv_LoRA(c1, c_, 1, 1)
         self.cv2 = nn.Conv2d(c1, c_, 1, 1, bias=False)
+        # LORA_RANK = int(c1 // LORA_RAN_BASE)
+        # LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
+        # # self.cv2 = LPConv(c1, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # # self.cv2 = ConvLoRA(nn.Conv2d, c1, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
+        # self.cv2 = ABConv(c1, c_, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=1, bias=False)
         self.cv3 = Conv(c_, c_, 3, 1)
+        # self.cv3 = Conv_LoRA(c_, c_, 3, 1)
         self.cv4 = Conv(c_, c_, 1, 1)
+        # self.cv4 = Conv_LoRA(c_, c_, 1, 1)
         self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
         self.cv5 = Conv(4 * c_, c_, 1, 1)
+        # self.cv5 = Conv_LoRA(4 * c_, c_, 1, 1)
         self.cv6 = Conv(c_, c_, 3, 1)
+        # self.cv6 = Conv_LoRA(c_, c_, 3, 1)
         self.bn = DEFAULT_NORMALIZATION(2 * c_) 
         self.act = V4_DEFAULT_ACTIVATION()
 
         self.cv7 = Conv(2 * c_, c2, 1, 1)
+        # self.cv7 = Conv_LoRA(2 * c_, c2, 1, 1)
         self.block_name = f'sppcsp'
 
 
@@ -478,6 +612,9 @@ class HarDBlock2(nn.Module):
             real_out_ch = self.out_partition[i][0]
             #print( self.links[i],  self.out_partition[i], accum_out_ch)
             conv_layers_.append( nn.Conv2d(cur_ch, accum_out_ch, kernel_size=3, stride=1, padding=1, bias=True) )
+            # LORA_RANK = int(accum_out_ch // LORA_RAN_BASE)
+            # LORA_ALPHA = int(LORA_RANK * 2)
+            # conv_layers_.append( LPConv(cur_ch, accum_out_ch, r=LORA_RANK, lora_alpha=LORA_ALPHA, kernel_size=3, stride=1, padding=1, bias=True) )
             bnrelu_layers_.append( BRLayer(real_out_ch) )
             cur_ch = real_out_ch
             if (i % 2 == 0) or (i == n_layers - 1):
@@ -739,6 +876,11 @@ class Detect(nn.Module):
         self.register_buffer('anchors', a)  # shape(nl,na,2)
         self.register_buffer('anchor_grid', a.clone().view(self.nl, 1, -1, 1, 1, 2))  # shape(nl,1,na,1,1,2)
         self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
+        # RANK = int((self.no * self.na) // 5)
+        # LORA_ALPHA = int(RANK * LORA_ALPHA_BASE)
+        # self.m = nn.ModuleList(LPConv(x, self.no * self.na, 1, r=RANK, lora_alpha=LORA_ALPHA) for x in ch)  # output conv
+        # self.m = nn.ModuleList(ConvLoRA(nn.Conv2d, x, self.no * self.na, 1, r=RANK, lora_alpha=LORA_ALPHA) for x in ch)  # output conv
+        # self.m = nn.ModuleList(ABConv(x, self.no * self.na, 1) for x in ch)  # output conv
         self.export = False  # onnx export
         self.block_name = f'detect'
 
@@ -906,18 +1048,31 @@ class RepConv(nn.Module):
         self.act = V7_DEFAULT_ACTIVATION() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
 
         if deploy:
-            self.rbr_reparam = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=True)
+            if k == 1:
+                self.rbr_reparam = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=True)
+            else:
+                LORA_RANK = int(c1 // LORA_RAN_BASE)
+                LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
+                # self.rbr_reparam = LPConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=True)
+                # self.rbr_reparam = ConvLoRA(nn.Conv2d, c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=True)
+                self.rbr_reparam = ABConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=True)
 
         else:
             self.rbr_identity = (nn.BatchNorm2d(num_features=c1) if c2 == c1 and s == 1 else None)
-
+            LORA_RANK = int(c1 // LORA_RAN_BASE)
+            LORA_ALPHA = int(LORA_RANK * LORA_ALPHA_BASE)
             self.rbr_dense = nn.Sequential(
-                nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False),
+                nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False) if k==1 else ABConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=False),
+                # LPConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=False),
+                # ConvLoRA(nn.Conv2d, c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=False),
+                # ABConv(c1, c2, k, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=autopad(k, p), groups=g, bias=False),
                 nn.BatchNorm2d(num_features=c2),
             )
-
             self.rbr_1x1 = nn.Sequential(
                 nn.Conv2d( c1, c2, 1, s, padding_11, groups=g, bias=False),
+                # LPConv(c1, c2, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=padding_11, groups=g, bias=False),
+                # ConvLoRA(nn.Conv2d, c1, c2, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=padding_11, groups=g, bias=False),
+                # ABConv(c1, c2, 1, r=LORA_RANK, lora_alpha=LORA_ALPHA, stride=s, padding=padding_11, groups=g, bias=False),
                 nn.BatchNorm2d(num_features=c2),
             )
         self.block_name = f'repconv_c1{c1}_c2{c2}_k{k}_s{s}'

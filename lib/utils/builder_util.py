@@ -40,7 +40,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             #################################
             # Specific Args PreProcessing
             #################################
-            if m in [nn.Conv2d, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, BottleneckCSP2, SPPCSP, VoVCSP, C3, \
+            if m in [nn.Conv2d, Conv_LoRA, Conv_Normal, Conv, Bottleneck_Normal, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, BottleneckCSP2, SPPCSP, VoVCSP, C3, \
                 RepConv, ELAN, ELAN2, SPPCSPC]:
                 
                 c1, c2 = ch[f], args[0]

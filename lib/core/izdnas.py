@@ -10,6 +10,8 @@ import torchvision
 import torch.nn.functional as F
 import itertools
 import random
+# import torchprof
+import torch.nn.utils.prune as prune
 from datetime import datetime
 from tqdm import tqdm
 from torch.cuda import amp
@@ -20,6 +22,7 @@ from lib.utils.kd_utils import compute_loss_KD
 from lib.utils.synflow import sum_arr_tensor
 from lib.zero_proxy import snip
 from lib.utils.general import random_testing
+
 
 
 class DefaultEnter():
@@ -261,11 +264,11 @@ def train_epoch_dnas(model, dataloader, optimizer, cfg, device, task_flops, task
     cache_hits = 0
     iterations = len(dataloader)
 
-    end = time.time()
+    # end = time.time()
     last_idx = len(dataloader) - 1
     
     batch_size = cfg.DATASET.BATCH_SIZE
-    alpha = 0.1        # for flops_loss
+    alpha = 0.01        # for flops_loss
     beta = 0.01         # for params_loss
     gamma = 0.01        # for zero cost loss
     omega = 0.01        # for depth loss
@@ -275,15 +278,22 @@ def train_epoch_dnas(model, dataloader, optimizer, cfg, device, task_flops, task
     
     temperature = model.module.temperature if is_ddp else model.temperature
     mloss = torch.zeros(4, device=device)  # mean losses
-    
+    # print(model)
+    # for name, param in model.named_parameters():
+    #     print(f"{name}: {param.requires_grad}")
 
     pbar = enumerate(dataloader)
     if local_rank in [-1, 0]:
         print(('%10s' * 14) % ('Epoch', 'gpu_mem', 'GIoU', 'obj', 'cls', 'total', 'targets', 'img_size', 'lr', 'moment', 'decay', 'temp', 'GFLOPS', 'f_loss'))
         pbar = tqdm(pbar, total=iterations, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
     
-    
+    # with torch.autograd.profiler.profile(use_cuda=True) as prof:
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    loss = 0
     for iter_idx, (imgs, targets, paths, _) in pbar:
+        # end0 = time.time()
         ##################################################################
         ### 1st. Train SuperNet Parameter
         ##################################################################
@@ -307,8 +317,9 @@ def train_epoch_dnas(model, dataloader, optimizer, cfg, device, task_flops, task
                 if 'momentum' in x:
                     w_momentum = np.interp(ni, xi, [0.9, cfg.momentum])
                     x['momentum'] = w_momentum
-
-        t_infer=time.time()
+        # end1 = time.time()
+        # print(f"Preprocess Time : {end1 - end0} ms")
+        # t_infer=time.time()
         if use_amp: 
             precision_determineter = amp.autocast(enabled=True)
             scaler = amp.GradScaler(enabled=True)
@@ -322,7 +333,13 @@ def train_epoch_dnas(model, dataloader, optimizer, cfg, device, task_flops, task
                 gumbel_prob = model.module.softmax_sampling(temperature) if is_ddp else model.softmax_sampling(temperature)
             if ni % 500 == 0: print(f'tmp={temperature:.4f} prob={gumbel_prob}')
             # print('[Random] sample prob', gumbel_prob)
+            # with torchprof.Profile(model, use_cuda=True) as prof:
+            # Autocast
+            
+            # with amp.autocast(enabled=cuda):
             pred = model.module(imgs, gumbel_prob) if is_ddp else model(imgs, gumbel_prob)
+            # print(len(pred))
+            # print(prof.display(show_events=False)) # equivalent to `print(prof)` and `print(prof.display())`
 
             det_loss, loss_items = compute_loss(pred, targets.to(device), model)  # scaled by batch_size
             det_loss = det_loss[0]
@@ -348,12 +365,16 @@ def train_epoch_dnas(model, dataloader, optimizer, cfg, device, task_flops, task
             # layers_loss = output_layers
                 
             train_loss = det_loss + flops_loss
+            loss += train_loss
+            # print(train_loss)
+            # train_loss = det_loss
 
             # if iter_idx == 0 and description == "architecture":
             #     logger.info(f'[Roger] Temp {temperature:5.2f} FLOPS : {output_flops:5.2f} Gumbel  {stringify_theta(gumbel_prob)}')
-            t_infer=time.time()-t_infer
-            
-            time_grad= time.time()
+            # t_infer=time.time()-t_infer
+            # end2 = time.time()
+            # print(f"Training Time : {end2 - end1} ms")
+            # time_grad= time.time()
             optimizer.zero_grad()
             
             if use_amp:
@@ -361,8 +382,24 @@ def train_epoch_dnas(model, dataloader, optimizer, cfg, device, task_flops, task
                 scaler.step(optimizer)
                 scaler.update()
             else:
+                # print(f"blocks.27.conv.lora_A GRAD = {model.blocks[27].conv.lora_A.grad}")
+                # print(f"blocks.27.conv.lora_B GRAD = {model.blocks[27].conv.lora_B.grad}")
+                # print(f"blocks.27.conv.conv.weight GRAD = {model.blocks[27].conv.conv.weight.grad}")
                 train_loss.backward()
+                # print(f"blocks.27.conv.lora_A GRAD = {model.blocks[27].conv.lora_A.grad}")
+                # print(f"blocks.27.conv.lora_B GRAD = {model.blocks[27].conv.lora_B.grad}")
+                # print(f"blocks.27.conv.conv.weight GRAD = {model.blocks[27].conv.conv.weight.grad}")
+                # print(f"blocks.0.conv.lora_A = {model.blocks[0].conv.lora_A.shape}")
+                # print(f"blocks.0.conv.lora_B = {model.blocks[0].conv.lora_B.shape}")
+                # print(f"blocks.0.conv.conv.weight = {model.blocks[0].conv.conv.weight.shape}")
+                # print(f"blocks.27.conv.lora_A = {model.blocks[27].conv.lora_A}")
+                # print(f"blocks.27.conv.lora_B = {model.blocks[27].conv.lora_B}")
+                # print(f"blocks.27.conv.conv.weight = {model.blocks[27].conv.conv.weight}")
+                # print(f"blocks.31.m.0.conv.weight = {model.blocks[31].m[0].conv.weight.shape}")
                 optimizer.step()
+                # print(f"blocks.27.conv.lora_A = {model.blocks[27].conv.lora_A}")
+                # print(f"blocks.27.conv.lora_B = {model.blocks[27].conv.lora_B}")
+                # print(f"blocks.27.conv.conv.weight = {model.blocks[27].conv.conv.weight}")
 
         if ema is not None:
             # description = "architecture", description = "weights"
@@ -370,7 +407,9 @@ def train_epoch_dnas(model, dataloader, optimizer, cfg, device, task_flops, task
                 ema.update(model, update_arch=False)
             elif description == "architecture":
                 ema.update(model, update_arch=True)
-
+        # print(f"ema {ema}")
+        # end3 = time.time()
+        # print(f"Update Time : {end3 - end2} ms")
         # Basic Info
         for j, x in enumerate(optimizer.param_groups):
             if 'momentum' in x:
@@ -387,52 +426,588 @@ def train_epoch_dnas(model, dataloader, optimizer, cfg, device, task_flops, task
                 '%g/%g' % (epoch, total_epoch), mem, *mloss, targets.shape[0], imgs.shape[-1], print_lr, print_m, print_wdecay, temperature, output_flops, squared_error_flops.detach().cpu())
             pbar.set_description(s)
             
-            # Plot
-            if ni < 3:
-                f = str(Path(logdir) / ('train_batch%g.jpg' % ni))  # filename
-                result = plot_images(images=imgs, targets=targets, paths=paths, fname=f)
-                # if tb_writer and result is not None:
-                #     tb_writer.add_image(f, result, dataformats='HWC', global_step=epoch)
-                    # tb_writer.add_graph(model, imgs)  # add model to tensorboard
+            # # Plot
+            # if ni < 3:
+            #     f = str(Path(logdir) / ('train_batch%g.jpg' % ni))  # filename
+            #     result = plot_images(images=imgs, targets=targets, paths=paths, fname=f)
+            #     # if tb_writer and result is not None:
+            #     #     tb_writer.add_image(f, result, dataformats='HWC', global_step=epoch)
+            #         # tb_writer.add_graph(model, imgs)  # add model to tensorboard
         
         # Calculate Zero-Cost
         if ni %  50 == 0:
             f = open(Path(logdir) / 'zcmap.txt', 'a')
             arch_prob = model.module.softmax_sampling(temperature, detach=True) if is_ddp else model.softmax_sampling(temperature, detach=True)
-            zc_map = zc_func(model, arch_prob, *zero_cost_data_pair)
+            # zc_map = zc_func(model, arch_prob, *zero_cost_data_pair)
+            zc_map = zc_func(model.module, arch_prob, *zero_cost_data_pair) if is_ddp else zc_func(model, arch_prob, *zero_cost_data_pair)
             f.write(f'[{ni}-{epoch}-{iter_idx:04d}] {str(zc_map)}\n')  
             f.close() 
             ########################################################################
             ########################################################################
             
-            f = open(Path(logdir) / 'zcmap_ema.txt', 'a')
-            ############################################
-            ema.ema.train()
-            for p in ema.ema.parameters():
-                p.requires_grad_(True)
-            ############################################
+        #     f = open(Path(logdir) / 'zcmap_ema.txt', 'a')
+        #     ############################################
+        #     ema.ema.train()
+        #     # lora.mark_only_lora_as_trainable(ema.ema)
+        #     for n, p in ema.ema.named_parameters():
+        #         if 'lora_' in n:
+        #             p.requires_grad_(True)
+        #     # for p in ema.ema.parameters():
+        #     #     p.requires_grad_(True)
+        #     # for name, param in ema.ema.named_parameters():
+        #     #     print(f"{name}: {param.requires_grad}")
+        #     ############################################
             
-            arch_prob = ema.ema.module.softmax_sampling(temperature, detach=True) if is_ddp else ema.ema.softmax_sampling(temperature, detach=True)
-            zc_map = zc_func(ema.ema, arch_prob, *zero_cost_data_pair)
-            f.write(f'[{ni}-{epoch}-{iter_idx:04d}] {str(zc_map)}\n')  
-            f.close() 
+        #     arch_prob = ema.ema.module.softmax_sampling(temperature, detach=True) if is_ddp else ema.ema.softmax_sampling(temperature, detach=True)
+        #     # zc_map = zc_func(ema.ema, arch_prob, *zero_cost_data_pair)
+        #     zc_map = zc_func(ema.ema.module, arch_prob, *zero_cost_data_pair) if is_ddp else zc_func(ema.ema, arch_prob, *zero_cost_data_pair)
+        #     f.write(f'[{ni}-{epoch}-{iter_idx:04d}] {str(zc_map)}\n')  
+        #     f.close() 
             
-            ############################################
-            ema.ema.zero_grad()
-            for p in ema.ema.parameters():
-                p.requires_grad_(False)
-            ema.ema.eval()
-            ############################################
+        #     ############################################
+        #     ema.ema.zero_grad()
+        #     for p in ema.ema.parameters():
+        #         p.requires_grad_(False)
+        #     ema.ema.eval()
+        #     ############################################
             
             model.train()
-            ema.ema.train()
+            
+        #     ema.ema.train()
 
-        # If iteration is too large, store checkpoint every 2500 iteration
-        if iterations > 5000:
-            if iter_idx % 2500 == 0:
-                torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'ema_pretrained_{epoch}_{iter_idx}.pt'))
-
+        # # If iteration is too large, store checkpoint every 2500 iteration
+        # if iterations > 5000:
+        #     if iter_idx % 2500 == 0:
+        #         torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'ema_pretrained_{epoch}_{iter_idx}.pt'))
+        # end4 = time.time()
+        # print(f"Total Time : {end4 - end0} ms")
+    end.record()
+    # print(prof.key_averages().table(sort_by="self_cuda_time_total"))
     torch.cuda.synchronize()
+    logger.info(f"Loss : {loss/iterations}")
+    logger.info(f"Epoch Time : {start.elapsed_time(end)} ms")
+    # print(start.elapsed_time(end))
+
+def train_epoch_dnas_prune(model, dataloader, optimizer, cfg, device, task_flops, task_params, zero_cost_data_pair=None,
+                     est=None, logger=None, local_rank=0, world_size=0, is_gumbel=False, use_amp=False, zc_func=None,
+                     prefix='', epoch=None, total_epoch=None, logdir='./', ema=None, warmup=True, description="", pruned_ratio=0.5):
+    # batch_time_m = AverageMeter()
+    # data_time_m = AverageMeter()
+    # training_losses_m = AverageMeter()
+    # flops_losses_m = AverageMeter()
+    # det_losses_m = AverageMeter()
+    # model_w_dir      = os.path.join(logdir, 'model_weights')
+    
+    cache_hits = 0
+    iterations = len(dataloader)
+
+    # end = time.time()
+    last_idx = len(dataloader) - 1
+    
+    batch_size = cfg.DATASET.BATCH_SIZE
+    lamda = 500         # for L1 norm
+    alpha = 0.1        # for flops_loss
+    beta = 0.01         # for params_loss
+    gamma = 0.01        # for zero cost loss
+    omega = 0.01        # for depth loss
+    eta = 0.01          # for regularization loss, default 0.01
+    nw = max(3 * batch_size, 1e3)
+    is_ddp = is_parallel(model)
+    
+    temperature = model.module.temperature if is_ddp else model.temperature
+    mloss = torch.zeros(4, device=device)  # mean losses
+    # print(model)
+    # for name, param in model.named_parameters():
+    #     print(f"{name}: {param.requires_grad}")
+
+    # ######################################
+    # # Prepare for L1 unstructure pruning
+    # ######################################
+    # parameters_to_prune = list()
+    # for name, module in model.named_modules():
+    #     if isinstance(module, ABConv):
+    #         module.merge_weights()  # Conbime weights
+    #         # print(f"Conv Shape {module.conv.weight}")
+    #         # print(f"Conv Shape {module.conv.weight.shape}")
+    #         parameters_to_prune.append((module.conv, 'weight'))
+    # # print(parameters_to_prune)
+    # prune.global_unstructured(
+    #     parameters_to_prune,
+    #     pruning_method=prune.L1Unstructured,
+    #     amount=(pruned_ratio / total_epoch)*epoch,
+    # )
+    # for name, module in model.named_modules():
+    #     if isinstance(module, ABConv):
+    #         # Update pruning mask
+    #         module.prune_weights(module.conv.lora_mask)
+    #         # module.prune_weights()
+    #         # Combine pruning mask and weights
+    #         prune.remove(module.conv, 'weight')
+
+    for name, module in model.named_modules():
+        if isinstance(module, ABConv):
+            # Update pruning mask
+            module.prune_weights()
+            # # Combine pruning mask and weights
+            # prune.remove(module.conv, 'weight')
+    
+    pbar = enumerate(dataloader)
+    if local_rank in [-1, 0]:
+        print(('%10s' * 14) % ('Epoch', 'gpu_mem', 'GIoU', 'obj', 'cls', 'total', 'targets', 'img_size', 'lr', 'moment', 'decay', 'GFLOPS', 'f_loss', 'Total_loss'))
+        pbar = tqdm(pbar, total=iterations, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
+    
+    # with torch.autograd.profiler.profile(use_cuda=True) as prof:
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    loss = 0
+    for iter_idx, (imgs, targets, paths, _) in pbar:
+        # end0 = time.time()
+        ##################################################################
+        ### 1st. Train SuperNet Parameter
+        ##################################################################
+        # imgs = (batch=2, 3, height, width)
+        imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
+
+        ni = iter_idx + iterations * (epoch- 1)
+        if ni <= nw and warmup:
+            import math
+            lf = lambda x: (((1 + math.cos(x * math.pi / total_epoch)) / 2) ** 1.0) * 0.8 + 0.2
+            xi = [0, nw]  # x interp
+            # model.gr = np.interp(ni, xi, [0.0, 1.0])  # giou loss ratio (obj_loss = 1.0 or giou)
+            accumulate = max(1, np.interp(ni, xi, [1, 1]).round())
+            for j, x in enumerate(optimizer.param_groups):
+                # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
+                if 'initial_lr' not in x:
+                    continue
+                w_lr = np.interp(ni, xi, [0.1 if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])
+                
+                x['lr'] = w_lr
+                if 'momentum' in x:
+                    w_momentum = np.interp(ni, xi, [0.9, cfg.momentum])
+                    x['momentum'] = w_momentum
+
+        # t_infer=time.time()
+        # end1 = time.time()
+        # print(f"Preprocess Time : {end1 - end0} ms")
+        if use_amp: 
+            precision_determineter = amp.autocast(enabled=True)
+            scaler = amp.GradScaler(enabled=True)
+        else:
+            precision_determineter = DefaultEnter()
+            
+        with precision_determineter:
+            if is_gumbel:
+                gumbel_prob = model.module.gumbel_sampling(temperature) if is_ddp else model.gumbel_sampling(temperature)
+            else:
+                gumbel_prob = model.module.softmax_sampling(temperature) if is_ddp else model.softmax_sampling(temperature)
+            if ni % 500 == 0: print(f'tmp={temperature:.4f} prob={gumbel_prob}')
+            # print('[Random] sample prob', gumbel_prob)
+            pred = model.module(imgs, gumbel_prob) if is_ddp else model(imgs, gumbel_prob)
+            # print(len(pred))
+
+            det_loss, loss_items = compute_loss(pred, targets.to(device), model)  # scaled by batch_size
+            det_loss = det_loss[0]
+                
+            architecture_info = {
+                'arch_type': 'continuous',
+                'arch': gumbel_prob
+            }
+            flops = model.module.calculate_flops_new(architecture_info, est.flops_dict) if is_ddp else model.calculate_flops_new(architecture_info, est.flops_dict)
+            output_flops = flops.mean() / 1e3
+            squared_error_flops = (output_flops - task_flops) ** 2
+            flops_loss = squared_error_flops * alpha
+
+            ### L1 norm regularization
+
+            # print(L1_loss)
+            # print(det_loss)
+            # print(flops_loss)
+                
+            train_loss = det_loss + flops_loss
+            loss += train_loss
+            # print(L1_loss)
+            # print(train_loss)
+            # end2 = time.time()
+            # print(f"Training Time : {end2 - end1} ms")
+
+            optimizer.zero_grad()
+            
+            if use_amp:
+                scaler.scale(train_loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                train_loss.backward()
+                # print(model.blocks[27])
+                # print(f"blocks.27.conv.conv.weight GRAD = {model.blocks[27].conv.conv.weight.grad}")
+                # print(f"blocks.27.conv.lora_A GRAD = {model.blocks[27].conv.lora_A.weight.shape}")
+                # print(f"blocks.27.conv.lora_A GRAD = {model.blocks[27].conv.lora_A.weight.grad}")
+                # print(f"blocks.27.conv.lora_B GRAD = {model.blocks[27].conv.lora_B.weight.shape}")
+                # print(f"blocks.27.conv.lora_B GRAD = {model.blocks[27].conv.lora_B.weight.grad}")
+                
+                optimizer.step()
+
+        if ema is not None:
+            # description = "architecture", description = "weights"
+            if description == "weights":
+                ema.update(model, update_arch=False)
+            elif description == "architecture":
+                ema.update(model, update_arch=True)
+        # end3 = time.time()
+        # print(f"Update Time : {end3 - end2} ms")
+
+        # Basic Info
+        for j, x in enumerate(optimizer.param_groups):
+            if 'momentum' in x:
+                break
+        print_lr = x['lr'] if 'lr' in x else 0
+        print_m = x['momentum'] if 'momentum' in x else 0
+        print_wdecay = x['weight_decay'] if 'weight_decay' in x else 0
+        
+        # Print
+        if local_rank in [-1, 0]:
+            mloss = (mloss * iter_idx + loss_items) / (iter_idx + 1)  # update mean losses
+            mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
+            s = ('%10s' * 2 + '%10.4g' * 12) % (
+                '%g/%g' % (epoch, total_epoch), mem, *mloss, targets.shape[0], imgs.shape[-1], print_lr, print_m, print_wdecay, output_flops, squared_error_flops.detach().cpu(), train_loss)
+            pbar.set_description(s)
+        
+        # Calculate Zero-Cost
+        if ni %  50 == 0:
+            f = open(Path(logdir) / 'zcmap.txt', 'a')
+            arch_prob = model.module.softmax_sampling(temperature, detach=True) if is_ddp else model.softmax_sampling(temperature, detach=True)
+            # zc_map = zc_func(model, arch_prob, *zero_cost_data_pair)
+            zc_map = zc_func(model.module, arch_prob, *zero_cost_data_pair) if is_ddp else zc_func(model, arch_prob, *zero_cost_data_pair)
+            f.write(f'[{ni}-{epoch}-{iter_idx:04d}] {str(zc_map)}\n')  
+            f.close() 
+            
+            model.train()
+
+        # end4 = time.time()
+        # print(f"Total Time : {end4 - end0} ms")
+    end.record()
+    torch.cuda.synchronize()
+    logger.info(f"Loss : {loss/iterations}")
+    logger.info(f"Epoch Time : {start.elapsed_time(end)} ms")
+
+def train_epoch_dnas_L1(model, dataloader, optimizer, cfg, device, task_flops, task_params, zero_cost_data_pair=None,
+                     est=None, logger=None, local_rank=0, world_size=0, is_gumbel=False, use_amp=False, zc_func=None,
+                     prefix='', epoch=None, total_epoch=None, logdir='./', ema=None, warmup=True, description="", important=1):
+    # batch_time_m = AverageMeter()
+    # data_time_m = AverageMeter()
+    # training_losses_m = AverageMeter()
+    # flops_losses_m = AverageMeter()
+    # det_losses_m = AverageMeter()
+    # model_w_dir      = os.path.join(logdir, 'model_weights')
+    
+    cache_hits = 0
+    iterations = len(dataloader)
+
+    # end = time.time()
+    last_idx = len(dataloader) - 1
+    
+    batch_size = cfg.DATASET.BATCH_SIZE
+    lamda = 500         # for L1 norm
+    alpha = 0.1        # for flops_loss
+    beta = 0.01         # for params_loss
+    gamma = 0.01        # for zero cost loss
+    omega = 0.01        # for depth loss
+    eta = 0.01          # for regularization loss, default 0.01
+    nw = max(3 * batch_size, 1e3)
+    is_ddp = is_parallel(model)
+    
+    temperature = model.module.temperature if is_ddp else model.temperature
+    mloss = torch.zeros(4, device=device)  # mean losses
+    # print(model)
+    # for name, param in model.named_parameters():
+    #     print(f"{name}: {param.requires_grad}")
+
+    # Calculate the number of weights in the model
+    nweights = 0
+    for name, module in model.named_modules():
+        if isinstance(module, ConvLoRA):
+            nweights = nweights + module.conv.weight.numel()
+    
+    pbar = enumerate(dataloader)
+    if local_rank in [-1, 0]:
+        print(('%10s' * 15) % ('Epoch', 'gpu_mem', 'GIoU', 'obj', 'cls', 'total', 'targets', 'img_size', 'lr', 'moment', 'decay', 'GFLOPS', 'f_loss', 'L1_loss', 'Total_loss'))
+        pbar = tqdm(pbar, total=iterations, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
+    
+    # with torch.autograd.profiler.profile(use_cuda=True) as prof:
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    loss = 0
+    for iter_idx, (imgs, targets, paths, _) in pbar:
+        end0 = time.time()
+        ##################################################################
+        ### 1st. Train SuperNet Parameter
+        ##################################################################
+        # imgs = (batch=2, 3, height, width)
+        imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
+
+        ni = iter_idx + iterations * (epoch- 1)
+        if ni <= nw and warmup:
+            import math
+            lf = lambda x: (((1 + math.cos(x * math.pi / total_epoch)) / 2) ** 1.0) * 0.8 + 0.2
+            xi = [0, nw]  # x interp
+            # model.gr = np.interp(ni, xi, [0.0, 1.0])  # giou loss ratio (obj_loss = 1.0 or giou)
+            accumulate = max(1, np.interp(ni, xi, [1, 1]).round())
+            for j, x in enumerate(optimizer.param_groups):
+                # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
+                if 'initial_lr' not in x:
+                    continue
+                w_lr = np.interp(ni, xi, [0.1 if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])
+                
+                x['lr'] = w_lr
+                if 'momentum' in x:
+                    w_momentum = np.interp(ni, xi, [0.9, cfg.momentum])
+                    x['momentum'] = w_momentum
+
+        # t_infer=time.time()
+        end1 = time.time()
+        print(f"Preprocess Time : {end1 - end0} ms")
+        if use_amp: 
+            precision_determineter = amp.autocast(enabled=True)
+            scaler = amp.GradScaler(enabled=True)
+        else:
+            precision_determineter = DefaultEnter()
+            
+        with precision_determineter:
+            if is_gumbel:
+                gumbel_prob = model.module.gumbel_sampling(temperature) if is_ddp else model.gumbel_sampling(temperature)
+            else:
+                gumbel_prob = model.module.softmax_sampling(temperature) if is_ddp else model.softmax_sampling(temperature)
+            if ni % 500 == 0: print(f'tmp={temperature:.4f} prob={gumbel_prob}')
+            # print('[Random] sample prob', gumbel_prob)
+            pred = model.module(imgs, gumbel_prob) if is_ddp else model(imgs, gumbel_prob)
+            # print(len(pred))
+
+            det_loss, loss_items = compute_loss(pred, targets.to(device), model)  # scaled by batch_size
+            det_loss = det_loss[0]
+                
+            architecture_info = {
+                'arch_type': 'continuous',
+                'arch': gumbel_prob
+            }
+            flops = model.module.calculate_flops_new(architecture_info, est.flops_dict) if is_ddp else model.calculate_flops_new(architecture_info, est.flops_dict)
+            output_flops = flops.mean() / 1e3
+            squared_error_flops = (output_flops - task_flops) ** 2
+            flops_loss = squared_error_flops * alpha
+
+            ### L1 norm regularization
+            # print(nweights)
+            L1 = 0 #torch.tensor(0., requires_grad=True)
+            for name, module in model.named_modules():
+                if isinstance(module, ConvLoRA):
+                    weights_sum = torch.sum(important[name] * torch.abs(module.conv.weight + (module.lora_B @ module.lora_A).view(module.conv.weight.shape) * module.scaling))
+                    L1 = L1 + weights_sum
+            L1 /= nweights
+            L1_loss = lamda * L1
+            # print(L1_loss)
+            # print(det_loss)
+            # print(flops_loss)
+                
+            train_loss = det_loss + flops_loss + L1_loss
+            loss += train_loss
+            # print(L1_loss)
+            # print(train_loss)
+            end2 = time.time()
+            print(f"Training Time : {end2 - end1} ms")
+
+            optimizer.zero_grad()
+            
+            if use_amp:
+                scaler.scale(train_loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                train_loss.backward()
+                optimizer.step()
+
+        if ema is not None:
+            # description = "architecture", description = "weights"
+            if description == "weights":
+                ema.update(model, update_arch=False)
+            elif description == "architecture":
+                ema.update(model, update_arch=True)
+        end3 = time.time()
+        print(f"Update Time : {end3 - end2} ms")
+
+        # Basic Info
+        for j, x in enumerate(optimizer.param_groups):
+            if 'momentum' in x:
+                break
+        print_lr = x['lr'] if 'lr' in x else 0
+        print_m = x['momentum'] if 'momentum' in x else 0
+        print_wdecay = x['weight_decay'] if 'weight_decay' in x else 0
+        
+        # Print
+        if local_rank in [-1, 0]:
+            mloss = (mloss * iter_idx + loss_items) / (iter_idx + 1)  # update mean losses
+            mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
+            s = ('%10s' * 2 + '%10.4g' * 13) % (
+                '%g/%g' % (epoch, total_epoch), mem, *mloss, targets.shape[0], imgs.shape[-1], print_lr, print_m, print_wdecay, output_flops, squared_error_flops.detach().cpu(), L1_loss, train_loss)
+            pbar.set_description(s)
+        
+        # Calculate Zero-Cost
+        if ni %  50 == 0:
+            f = open(Path(logdir) / 'zcmap.txt', 'a')
+            arch_prob = model.module.softmax_sampling(temperature, detach=True) if is_ddp else model.softmax_sampling(temperature, detach=True)
+            # zc_map = zc_func(model, arch_prob, *zero_cost_data_pair)
+            zc_map = zc_func(model.module, arch_prob, *zero_cost_data_pair) if is_ddp else zc_func(model, arch_prob, *zero_cost_data_pair)
+            f.write(f'[{ni}-{epoch}-{iter_idx:04d}] {str(zc_map)}\n')  
+            f.close() 
+            
+            model.train()
+
+    end.record()
+    torch.cuda.synchronize()
+    logger.info(f"Loss : {loss/iterations}")
+    logger.info(f"Epoch Time : {start.elapsed_time(end)} ms")
+
+
+def train_epoch_zdnas_all(epoch, model, zc_func, theta_optimizer, cfg, device, task_flops, 
+                     est=None, table=None, logger=None, local_rank=0, prefix='', logdir='./'):
+    batch_size = cfg.DATASET.BATCH_SIZE
+    is_ddp = is_parallel(model)
+    nn_model = model.module if is_ddp else model
+    
+    naive_model  = model.module if is_ddp else model
+    search_space = naive_model.search_space
+    temperature = nn_model.temperature
+    
+    # Average Meter
+    avg_params = AverageMeter()
+    avg_flops  = AverageMeter()
+    avg_floss  = AverageMeter()
+    avg_zcloss = AverageMeter()
+    avg_depth = AverageMeter()
+    avg_latency = AverageMeter()
+    total      = AverageMeter()
+    
+    
+    alpha = cfg.STAGE2.ALPHA #0.03 # 0.005 # 0.01 # 0.03    # for flops_loss
+    # beta  = 0.010                                           # for params_loss
+    gamma = cfg.STAGE2.GAMMA # 0.01                         # for zero cost loss
+    theta = cfg.STAGE2.THETA #0.01 # 0.005                               # for latency loss
+    omega = cfg.STAGE2.OMEGA #0.010                                       # for depth loss
+    
+    alpha = 0.0 if epoch < cfg.STAGE2.HARDWARE_FREEZE_EPOCHS else alpha
+    print(f'Gamma(ZC loss weight)={gamma:.3f} Alpha(FLOP loss weight)={alpha:.3f}')
+    
+    num_iter = cfg.STAGE2.ITERATIONS #2000 # 2880
+    if local_rank in [-1, 0]:
+        logger.info(('%10s' * 10) % ('Epoch', 'gpu_num', 'Param', 'FLOPS', 'Depth', 'Latency', 'f_loss', 'zc_loss', 'total', 'temp'))
+        pbar = tqdm(range(num_iter), total=num_iter, bar_format='{l_bar}{bar:5}{r_bar}')  # progress bar
+    
+    f=open(os.path.join(logdir, 'train.txt'), 'a')
+    for iter_idx in pbar:
+        if iter_idx % cfg.STAGE2.ZCMAP_UPDATE_ITER == 0:
+        # if True:
+        # if iter_idx % 50 == 0: 
+        # if iter_idx % 250 == 0: 
+            arch_prob = model.module.softmax_sampling(temperature, detach=True) if is_ddp else model.softmax_sampling(temperature, detach=True)
+            zc_map = zc_func(arch_prob)
+            f.write(f'[{epoch}-{iter_idx:04d}] {str(arch_prob)}\n')
+            f.write(f'[{epoch}-{iter_idx:04d}] {str(zc_map)}\n')
+        ##########################################################
+        # Calculate Basic Information (FLOPS, Params, ZC_Score)
+        ##########################################################
+        gumbel_prob = model.module.gumbel_sampling(temperature) if is_ddp else model.gumbel_sampling(temperature)
+        architecture_info = {
+            'arch_type': 'continuous',
+            'arch': gumbel_prob
+        }
+         
+        # output_flops, output_params, zc_score = nn_model.calculate_utility(architecture_info, est.flops_dict, est.params_dict, zc_map)
+        output_flops, output_params, zc_score, output_latency = nn_model.calculate_utility_all(architecture_info, est.flops_dict, est.params_dict, zc_map, table)
+        output_depth = nn_model.calculate_layers_new(architecture_info)
+        output_flops /= 1e3
+        # zc_score = nn_model.calculate_zc(architecture_info, zc_map)
+        # output_flops  = nn_model.calculate_flops_new (architecture_info, est.flops_dict) / 1e3        
+        # output_params = nn_model.calculate_params_new(architecture_info, est.params_dict)
+        
+        #########################################
+        # Calculate Loss
+        #########################################
+        squared_error_flops = (output_flops - task_flops) ** 2
+        # squared_error_params = (output_params - task_params) ** 2
+        # output_flops,  squared_error_flops  =  flop_mean_square_error(nn_model, est, architecture_info, task_flops)
+        
+
+        
+        flops_loss  = squared_error_flops * alpha
+        # params_loss = squared_error_params * beta
+        zc_loss     = zc_score * gamma
+        depth_loss = output_depth * omega
+        latency_loss = output_latency * theta
+        
+        loss = zc_loss + flops_loss + depth_loss + latency_loss
+
+        #########################################
+        # Calculate Loss
+        #########################################
+        theta_optimizer.zero_grad()
+        loss.backward()
+        theta_optimizer.step()
+        
+
+        # Update Average Meter
+        avg_params.update(output_params.item(), 1)
+        avg_flops.update(output_flops.item(), 1)
+        avg_floss.update(squared_error_flops.item(), 1)
+        avg_zcloss.update(zc_score.item(), 1)
+        avg_depth.update(output_depth.item(), 1)
+        avg_latency.update(output_latency.item(), 1)
+        total.update(loss.item(), 1)
+        
+        # Print
+        if local_rank in [-1, 0]:
+            ni = iter_idx
+            mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
+            s = ('%10s' * 2 + '%10.4g' * 8) % (
+                '%3d/%3d' % (epoch,cfg.STAGE2.EPOCHS), mem, avg_params.avg, avg_flops.avg, avg_depth.avg, avg_latency.avg, avg_floss.avg, \
+                    avg_zcloss.avg, total.avg, temperature)
+
+            date_time = datetime.now().strftime('%m/%d %I:%M:%S %p') + ' | '
+            pbar.set_description(date_time + s)
+            
+    ##############################################################
+    # Print Continuous FLOP Value
+    ##############################################################
+    arch_prob = model.module.softmax_sampling(temperature) if is_ddp else model.softmax_sampling(temperature)
+    architecture_info = {
+        'arch_type': 'continuous',
+        'arch': arch_prob
+    }
+    output_flops, output_params, zc_score, output_latency = nn_model.calculate_utility_all(architecture_info, est.flops_dict, est.params_dict, zc_map, table)
+    output_depth = nn_model.calculate_layers_new(architecture_info)
+    output_flops /= 1e3
+    # output_flops  = model.calculate_flops_new (architecture_info, est.flops_dict) / 1e3
+    # output_params = model.calculate_params_new(architecture_info, est.params_dict)
+    # zc_score = model.calculate_zc(architecture_info, zc_map)
+    print(f'Continuous Current FLOPS: {output_flops:.2f}G   Params: {output_params:.2f}M   Depth: {output_depth}   Latency: {output_latency:.2f}ms   ZC: {zc_score}')
+    
+    ##############################################################
+    # Print Discrete FLOP Value
+    ##############################################################
+    arch_prob = model.module.discretize_sampling() if is_ddp else model.discretize_sampling()
+    architecture_info = {
+        'arch_type': 'continuous',
+        'arch': arch_prob
+    }
+    # output_flops  = model.calculate_flops_new (architecture_info, est.flops_dict) / 1e3
+    # output_params = model.calculate_params_new(architecture_info, est.params_dict)
+    # zc_score = model.calculate_zc(architecture_info, zc_map)
+    output_flops, output_params, zc_score, output_latency = nn_model.calculate_utility_all(architecture_info, est.flops_dict, est.params_dict, zc_map, table)
+    output_depth = nn_model.calculate_layers_new(architecture_info)
+    output_flops /= 1e3
+    print(f'Discrete Current FLOPS: {output_flops:.2f}G   Params: {output_params:.2f}M   Depth: {output_depth}   Latency: {output_latency:.2f}ms   ZC: {zc_score}')
+            
+    logger.info(s)
+    return nn_model.thetas_main
 
 def train_epoch_zdnas(epoch, model, zc_func, theta_optimizer, cfg, device, task_flops, 
                      est=None, logger=None, local_rank=0, prefix='', logdir='./'):

@@ -22,6 +22,7 @@ import yaml
 from scipy.cluster.vq import kmeans
 from scipy.signal import butter, filtfilt
 from tqdm import tqdm
+import loralib as lora
 
 from lib.utils.torch_utils import init_seeds, is_parallel, select_device, time_synchronized
 
@@ -774,6 +775,8 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
     t = time.time()
     output = [None] * prediction.shape[0]
     for xi, x in enumerate(prediction):  # image index, image inference
+        # print(f"xi {xi}")
+        # print(f"x {x.shape}")
         st= time.time()
         # Apply constraints
         # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
@@ -788,6 +791,7 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
 
         # Box (center x, center y, width, height) to (x1, y1, x2, y2)
         box = xywh2xyxy(x[:, :4])
+        # print(f"t1 {time.time()}")
 
         # Detections matrix nx6 (xyxy, conf, cls)
         if multi_label:
@@ -796,6 +800,7 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
         else:  # best class only
             conf, j = x[:, 5:].max(1, keepdim=True)
             x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
+        # print(f"t2 {time.time()}")
 
         # Filter by class
         if classes:
@@ -813,14 +818,17 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
 
         # Sort by confidence
         # x = x[x[:, 4].argsort(descending=True)]
+        # print(f"t3 {time.time()}")
 
         # Batched NMS
         c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
         boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
+        # print(f"t4 {time.time()}")
         
         i = torchvision.ops.boxes.nms(boxes, scores, iou_thres)
         if i.shape[0] > max_det:  # limit detections
             i = i[:max_det]
+        # print(f"t5 {time.time()}")
         if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
             try:  # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
                 iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix
@@ -831,6 +839,7 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
             except:  # possible CUDA error https://github.com/ultralytics/yolov3/issues/1139
                 print(x, i, x.shape, i.shape)
                 pass
+        # print(f"t6 {time.time()}")
 
         output[xi] = x[i]
         # print(f'process image{xi} time {time.time() - st}')
@@ -1649,6 +1658,7 @@ def test(data,
          logger=None):
     # Initialize/load model and set device
     training = model is not None
+    print(f"training : {training}")
     if training:  # called by train.py
         device = next(model.parameters()).device  # get model device
 
@@ -1714,10 +1724,14 @@ def test(data,
         with torch.no_grad():
             # Run model
             t = time_synchronized()
-            [inf_out, train_out] = model(img)  # inference and training outputs
+            # print("start")
+            # [inf_out, train_out] = model(img)  # inference and training outputs
+            [inf_out, train_out] = model.module(img) if is_parallel(model) else model(img)
+            # print(f"Shape {inf_out.shape}")
             #inf_out, train_out = model(img.to(memory_format=torch.channels_last), augment=augment)  # inference and training outputs
             t0_current = time_synchronized() - t
             t0 += t0_current
+            # print(f"current 0 = {t0_current}")
 
             # Compute loss
             if training:  # if model has loss hyperparameters
@@ -1725,9 +1739,11 @@ def test(data,
 
             # Run NMS
             t = time_synchronized()
+            # print("NMS start")
             output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, merge=merge)
             t1_current = time_synchronized() - t
             t1 += t1_current
+            # print(f"current 1 = {t1_current}")
             
         # Statistics per image
         for si, pred in enumerate(output):
@@ -1899,30 +1915,38 @@ class ModelEMA:
 
     def __init__(self, model, decay=0.9999, updates=0):
         # Create EMA
-        self.ema = deepcopy(model.module if is_parallel(model) else model).eval()  # FP32 EMA
+        # self.ema = deepcopy(model.module if is_parallel(model) else model).eval()  # FP32 EMA
+        self.ema = deepcopy(model).eval()  # FP32 EMA
         # if next(model.parameters()).device.type != 'cpu':
         #     self.ema.half()  # FP16 EMA
         self.updates      = updates  # number of EMA updates
         self.updates_arch = updates  # number of EMA updates
         self.decay        = lambda x: decay * (1 - math.exp(-x / 2000))  #2000 decay exponential ramp (to help early epochs)
         self.decay_arch   = lambda x: decay * (1 - math.exp(-x / 100))  #25 decay exponential ramp (to help early epochs)
-        
+
         for p in self.ema.parameters():
             p.requires_grad_(False)
 
     def update(self, model, update_arch):
         # Update EMA parameters
         # nn.module parameters only !!
+        i = 0
         if not update_arch:
             with torch.no_grad():
                 self.updates += 1
                 d = self.decay(self.updates)
 
-                msd = model.module.state_dict() if is_parallel(model) else model.state_dict()  # model state_dict
-                for k, v in self.ema.state_dict().items():
+                ## Update LoRA paramters
+                # msd = model.module.state_dict() if is_parallel(model) else model.state_dict()  # model state_dict
+                msd = lora.lora_state_dict(model.module) if is_parallel(model) else lora.lora_state_dict(model)  # model state_dict
+                # for k, v in self.ema.state_dict().items():
+                # for k, v in lora.lora_state_dict(self.ema).items():
+                for k, v in lora.lora_state_dict(self.ema.module if is_parallel(model) else self.ema).items():
+                    # print(f"{k, v}")
                     if v.dtype.is_floating_point:
                         v *= d
                         v += (1. - d) * msd[k].detach()
+                        i += 1
 
         # Update theta parameters
         if update_arch:
@@ -1960,6 +1984,7 @@ class ModelEMA:
         
         # Update temperature
         self.ema.temperature = model.module.temperature if is_parallel(model) else model.temperature
+        # print(i)
         
         
     def update_attr(self, model, include=(), exclude=('process_group', 'reducer')):

@@ -13,6 +13,8 @@ import torch.nn as nn
 import tqdm
 import shutil
 
+import loralib as lora
+
 import _init_paths
 
 # import timm packages
@@ -28,8 +30,11 @@ except ImportError:
     USE_APEX = False
 
 # import models and training functions
+# from lib.models.blocks.lora_prune import LPConv, ABConv
+from lib.utils.prune import init_sensitivity_dict, update_sensitivity_dict, schedule_sparsity_ratio
+from lib.models.blocks.lora_prune import mark_only_lora_as_trainable, LPConv, ABConv
 from lib.utils.flops_table import FlopsEst
-from lib.core.izdnas import train_epoch_dnas, train_epoch_dnas_V2, train_epoch_zdnas
+from lib.core.izdnas import train_epoch_dnas, train_epoch_dnas_V2, train_epoch_zdnas, train_epoch_dnas_L1, train_epoch_dnas_prune
 from lib.models.structures.supernet import gen_supernet
 from lib.utils.util import convert_lowercase, get_logger, \
     create_optimizer_supernet, create_supernet_scheduler, stringify_theta, write_thetas, export_thetas
@@ -75,6 +80,7 @@ def parse_config_args(exp_name):
     parser.add_argument('--nas', default='', type=str, help='NAS-Search-Space and hardware constraint combination')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--pre_weights', type=str, default='', help='pretrained model weights')
+    parser.add_argument('--lora_weights', type=str, default='', help='pretrained LoRA model weights')
     parser.add_argument('--zc', type=str, default='', help='zero cost metrics')
     
     ###################################################################################
@@ -223,6 +229,9 @@ def main():
         verbose=cfg.VERBOSE,
         logger=logger,
         init_temp=cfg.TEMPERATURE.INIT)
+    
+    # Just train LoRA parameters
+    mark_only_lora_as_trainable(model)
 
     # number of choice blocks in supernet
     # choice_num = model.choices # First bottlecsp
@@ -265,6 +274,9 @@ def main():
 
     model = model.to(device)
     
+    ### Initial sensitivity scores
+    # sensitivity_dict = init_sensitivity_dict(model)
+
     # create learning rate scheduler
     lr_scheduler, num_epochs = create_supernet_scheduler(cfg, optimizer)
 
@@ -321,7 +333,7 @@ def main():
     print('[Info] cfg.TEMPERATURE.INIT', cfg.TEMPERATURE.INIT)
     print('[Info] cfg.TEMPERATURE.FINAL', cfg.TEMPERATURE.FINAL)
 
-    ema = ModelEMA(model) if args.local_rank in [-1, 0] else None
+    # ema = ModelEMA(model) if args.local_rank in [-1, 0] else None
 
     # Testloader
     if args.local_rank in [-1, 0]:
@@ -337,10 +349,10 @@ def main():
     # EMA_WEIGHT_NAME   = os.path.join(args.pretrain_dir, f'ema_pretrained_{cfg.FREEZE_EPOCH}.pt') 
     # OPTIMIZER_NAME    = os.path.join(args.pretrain_dir, f'optimizer_{cfg.FREEZE_EPOCH}.pt')
 
-    
     # training scheme
     method = 'ver1'
     is_ddp = is_parallel(model)
+    print(f"IS_DDP {is_ddp}")
     ##################################################################
     ### Choice a Zero-Cost Method
     ##################################################################    
@@ -354,12 +366,13 @@ def main():
     zc_func = PROXY_DICT[args.zc]
     wot_function = lambda arch_prob: PROXY_DICT[args.zc](model, arch_prob, imgs, targets, None)
 
+
     # Calculate trainable parameters
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Trainable Parameters (Model): {pytorch_total_params}")
-    # Calculate trainable parameters
-    pytorch_total_params = sum(p.numel() for p in ema.ema.parameters() if p.requires_grad)
-    logger.info(f"Trainable Parameters (EMA): {pytorch_total_params}")
+    # # Calculate trainable parameters
+    # pytorch_total_params = sum(p.numel() for p in ema.ema.parameters() if p.requires_grad)
+    # logger.info(f"Trainable Parameters (EMA): {pytorch_total_params}")
 
     try:
         print('TASK_FLOPS', TASK_FLOPS)
@@ -369,10 +382,12 @@ def main():
         ###########################################
         # Phase1 Pretrained Model Weights
         ###########################################
-        torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'model_init.pt'))
-        if args.pre_weights == '':
+        # torch.save(lora.lora_state_dict(model), os.path.join(model_w_dir, f'lora_init.pt'))
+        torch.save(model.state_dict(),   os.path.join(model_w_dir, f'model_init.pt'))
+        t0 = time.time()
+        if args.lora_weights == '':
             # print(model)
-            t0 = time.time()
+            # print(ema.ema)
             for epoch in range(start_epoch+1, num_epochs+1):
                 model.train()
                 ####################################################
@@ -386,7 +401,7 @@ def main():
                     train_epoch_dnas_V2(model, dataloader_weight, dataloader_thetas, optimizer, theta_optimizer, cfg, device=device, 
                         task_flops=TASK_FLOPS, task_params=TASK_PARAMS, logger=logger, 
                         est=model_est, local_rank=args.local_rank, world_size=args.world_size, 
-                        epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True, ema=ema
+                        epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True
                     )
                 
                 ####################################################
@@ -406,16 +421,56 @@ def main():
                             epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True, ema=ema, warmup=False, description="architecture"
                         )
                     
-                    # Train Network Parameter
-                    train_epoch_dnas(model, dataloader_weight, optimizer, cfg, device=device, 
-                        task_flops=TASK_FLOPS, task_params=TASK_PARAMS, logger=logger, zero_cost_data_pair=(imgs,targets),
-                        est=model_est, local_rank=args.local_rank, world_size=args.world_size, use_amp=USE_AMP, zc_func=zc_func,
-                        epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True, ema=ema, description="weights"
-                    )
+                    # Train Network Parameter, every two epochs prune once
+                    if epoch % 2 != 0:
+                        print("Train")
+                        train_epoch_dnas(model, dataloader_weight, optimizer, cfg, device=device, 
+                            task_flops=TASK_FLOPS, task_params=TASK_PARAMS, logger=logger, zero_cost_data_pair=(imgs,targets),
+                            est=model_est, local_rank=args.local_rank, world_size=args.world_size, use_amp=USE_AMP, zc_func=zc_func,
+                            epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True, description="weights"
+                        )
+                    else:
+                        print("Prune")
+                        train_epoch_dnas_prune(model, dataloader_weight, optimizer, cfg, device=device, 
+                            task_flops=TASK_FLOPS, task_params=TASK_PARAMS, logger=logger, zero_cost_data_pair=(imgs,targets),
+                            est=model_est, local_rank=args.local_rank, world_size=args.world_size, use_amp=USE_AMP, zc_func=zc_func,
+                            epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True, description="weights", pruned_ratio=0.5
+                        )
+
+                    # parameters_to_prune = list()
+                    # for name, module in model.named_modules():
+                    #     if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+                    #         parameters_to_prune.append((module, 'weight'))
+                    
+                    # torch.save(model.state_dict(),   os.path.join(model_w_dir, f'pruned.pt'))
+                    # prune_sparsity = 0
+                    # total_sparsity = 0
+                    # for name, module in model.named_modules():
+                    #     # print(name)
+                    #     if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+                    #         prune_sparsity += torch.sum(module.weight == 0)
+                    #         total_sparsity += module.weight.nelement()
+                    #         print(
+                    #             "Sparsity in {}: {:.2f}%".format(
+                    #                 module,
+                    #                 100. * float(torch.sum(module.weight == 0))
+                    #                 / float(module.weight.nelement())
+                    #             )
+                    #         )
+                    #         # print(f"blocks.weight = {module.weight}")
+                    #         # prune.remove(module, 'weight')
+                    #         # print(f"blocks.weight = {module.weight}")
+
+                    # print(
+                    #     "Global sparsity: {:.2f}%".format(
+                    #         100. * float(prune_sparsity) / float(total_sparsity)
+                    #     )
+                    # )
                     
 
-                    if epoch % 2 == 0:
-                        torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'ema_pretrained_{epoch}.pt'))
+                    if epoch % 10 == 0:
+                        torch.save(model.state_dict(), os.path.join(model_w_dir, f'pretrained_{epoch}.pt'))
+                        # torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'ema_pretrained_{epoch}.pt'))
                         
                     # if True:
                     #     ##############################################################
@@ -444,18 +499,19 @@ def main():
                     #     logger.info(f'Model Continous FLOPS : {flops:6.2f} Discrete Archtiecture : {continuous_str_arch}')        
                 
                 lr_scheduler.step()
-                logger.info("[EMA] test result")
-                _, _, map50, *other = test(
-                    data=args.data,
-                    batch_size=16,
-                    imgsz=416,
-                    save_json=False,
-                    model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,
-                    single_cls=False,
-                    dataloader=testloader,
-                    save_dir=output_dir,
-                    logger=logger
-                )
+                # logger.info("[EMA] test result")
+                # _, _, map50, *other = test(
+                #     data=args.data,
+                #     batch_size=16,
+                #     imgsz=416,
+                #     save_json=False,
+                #     # model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,\
+                #     model=ema.ema,
+                #     single_cls=False,
+                #     dataloader=testloader,
+                #     save_dir=output_dir,
+                #     logger=logger
+                # )
                 
                 logger.info("[Model] test result")
                 _, _, map50, *other = test(
@@ -463,7 +519,8 @@ def main():
                     batch_size=16,
                     imgsz=416,
                     save_json=False,
-                    model=model.module if hasattr(model, 'module') else model,
+                    # model=model.module if hasattr(model, 'module') else model,
+                    model=model,
                     single_cls=False,
                     dataloader=testloader,
                     save_dir=output_dir,
@@ -478,12 +535,68 @@ def main():
                     model.temperature = aft_temp #* np.exp(-0.065)
                     print(f'Decreasing temperature. End Of Epoch{epoch}  {bef_temp:.4f}=>{aft_temp:.4f}')
                 
+                # Pint Parameter sparse ratio
+                prune_sparsity = 0
+                total_sparsity = 0
+                for name, module in model.named_modules():
+                    if isinstance(module, lora.ConvLoRA) or isinstance(module, LPConv) or isinstance(module, ABConv):
+                        prune_sparsity += torch.sum(module.conv.weight.data  == 0)
+                        total_sparsity += module.conv.weight.nelement()
+                        print(
+                            "Sparsity in {}: {:.2f}%".format(
+                                module,
+                                100. * float(torch.sum(module.conv.weight.data == 0))
+                                / float(module.conv.weight.nelement())
+                            )
+                        )
+                # logger.info
+                logger.info(
+                    "Global sparsity: {:.2f}%".format(
+                        100. * float(prune_sparsity) / float(total_sparsity)
+                    )
+                )
+                
+                if epoch >= cfg.WARMUP_EPOCH:
+                    bef_temp = model.temperature
+                    aft_temp = model.temperature * temp_decay1
+                    model.temperature = aft_temp #* np.exp(-0.065)
+                    print(f'Decreasing temperature. End Of Epoch{epoch}  {bef_temp:.4f}=>{aft_temp:.4f}')
+                
                 
             s = ('%20s' + '%12s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@.5', 'mAP@.5:.95')
             logger.info(s)
-            model.load_state_dict(ema.ema.state_dict())
+            # model.load_state_dict(ema.ema.state_dict())
+            # Load the pretrained checkpoint first
+            # model.load_state_dict(ema.ema.state_dict(), strict=False)
+            # Then load the LoRA checkpoint
+            # model.load_state_dict(lora.lora_state_dict(ema.ema), strict=False)
         else:
-            model.load_state_dict(torch.load(args.pre_weights))
+            # model.load_state_dict(torch.load(args.pre_weights))
+            # Load the pretrained checkpoint first
+            # model.load_state_dict(torch.load(args.pre_weights), strict=False)
+            # Then load the LoRA checkpoint
+            model.load_state_dict(torch.load(args.lora_weights), strict=False)
+            # Pint Parameter sparse ratio
+            prune_sparsity = 0
+            total_sparsity = 0
+            for name, module in model.named_modules():
+                if isinstance(module, lora.ConvLoRA) or isinstance(module, LPConv) or isinstance(module, ABConv):
+                    prune_sparsity += torch.sum(module.conv.weight.data  == 0)
+                    total_sparsity += module.conv.weight.nelement()
+                    print(
+                        "Sparsity in {}: {:.2f}%".format(
+                            module,
+                            100. * float(torch.sum(module.conv.weight.data == 0))
+                            / float(module.conv.weight.nelement())
+                        )
+                    )
+            # logger.info
+            print(
+                "Global sparsity: {:.2f}%".format(
+                    100. * float(prune_sparsity) / float(total_sparsity)
+                )
+            )
+
 
         t1 = time.time()
         print(f"time = {t1-t0} s")
@@ -492,6 +605,7 @@ def main():
         # Calculate trainable parameters
         pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         logger.info(f"Trainable Parameters (Model): {pytorch_total_params}")
+
         
         ###########################################
         # Phase2 Train Zero-DNAS 

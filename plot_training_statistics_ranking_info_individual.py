@@ -81,7 +81,8 @@ def analyze_ranking(model, zero_cost_func, image_idx):
 def analyze_ranking_epoch_info(model, args, zero_cost_func):
     IMAGE_IDX = 0
     NUM_STAGES = len(model.searchable_block_idx)
-    epoch_model_list = ['model_init.pt', *[f'ema_pretrained_{epoch}.pt' for epoch in range(2,22,2)]]    
+    # epoch_model_list = ['model_init.pt', *[f'ema_pretrained_{epoch}.pt' for epoch in range(2,22,2)]]    
+    epoch_model_list = ['lora_init.pt', *[f'lora_pretrained_{epoch}.pt' for epoch in range(2,22,2)]] 
     epoch_model_list = epoch_model_list[:10]
     
     exp_list      = natsorted(glob.glob(os.path.join('experiments','workspace','train',args.exp_series+'*')))
@@ -135,20 +136,29 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
     for epoch_idx, model_file in enumerate(epoch_model_list):                       # For each epoch
         epoch = epoch_idx * 2 
         for model_idx, (exp_path, exp_name) in enumerate(zip(exp_list, exp_name_list)): # For different rand seed model
+            # Load the pretrained checkpoint first
+            # if epoch_idx == 0:
+            model_path = os.path.join(exp_path, 'model_weights', 'model_init.pt')
+            print(f'Loading {model_path}')
+            model.load_state_dict(torch.load(model_path), strict=False)
             model_path = os.path.join(exp_path, 'model_weights', model_file)
             print(f'Loading {model_path}')
-            model.load_state_dict(torch.load(model_path))
+            # model.load_state_dict(torch.load(model_path))
+            # Then load the LoRA checkpoint
+            model.load_state_dict(torch.load(model_path), strict=False)
             
             ###############################################
             # Replaciable  Area
             # Analyze Parameter
             ###############################################
+            model.eval()
             stage_statistics = analyze_ranking(model, zero_cost_func, IMAGE_IDX)
             ###############################################
             
             for key in stage_statistics.keys():
                 score_stats[model_idx][key].append(stage_statistics[key])
             score_stats[model_idx]['epoch'].append(epoch)
+            model.train()
         
         # (num_stage, num_candidate, num_exp)
         rank_array  = np.concatenate([score_stats[m_idx]['rank'][epoch_idx]  for m_idx in range(len(exp_name_list))], axis=-1)
@@ -175,9 +185,13 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
             data2[stage_idx]['var']['y'].append(np.mean(np.var(score_array[stage_idx], axis=-1), axis=-1).item())
             data2[stage_idx]['var']['x'].append(epoch)
 
-        data['tau']['y'].append(np.mean(data2[stage_idx]['tau']['y']))
+        print(f"{epoch_idx} = {stage_tau_list}")
+        # data['tau']['y'].append(np.mean(data2[stage_idx]['tau']['y']))
+        # data['tau']['y'].append(np.mean([data2[n]['tau']['y'][epoch_idx] for n in range(NUM_STAGES)]))
+        data['tau']['y'].append(np.mean(stage_tau_list))
         data['tau']['x'].append(epoch)
-        data['var']['y'].append(np.mean(data2[stage_idx]['var']['y']))
+        # data['var']['y'].append(np.mean(data2[stage_idx]['var']['y']))
+        data['var']['y'].append(np.mean([data2[n]['var']['y'][epoch_idx] for n in range(NUM_STAGES)]))
         data['var']['x'].append(epoch)
 
 
@@ -185,13 +199,17 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
     ###############################################
     # Plotting Kendal tau for each stage
     ###############################################
-    fig, axes = plt.subplots(3, 3, figsize=(20,24))
+    # fig, axes = plt.subplots(3, 3, figsize=(20,24))
+    fig, axes = plt.subplots(4, 2, figsize=(16,20))
+    fig2, axes2 = plt.subplots(4, 2, figsize=(16,20))
     for stage_idx in range(NUM_STAGES):
         ###################
         # Draw Figure
         ###################
-        row_idx = stage_idx // 3
-        col_idx = stage_idx %  3
+        # row_idx = stage_idx // 3
+        # col_idx = stage_idx %  3
+        row_idx = stage_idx // 2
+        col_idx = stage_idx %  2
         
         color = 'tab:red'
         axes[row_idx,  col_idx].plot(data2[stage_idx]['tau']['x'], data2[stage_idx]['tau']['y'], label=f'tau', color = color)
@@ -199,21 +217,29 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
         axes[row_idx,  col_idx].set_ylabel('Kendals Tau', color = color)
         axes[row_idx,  col_idx].tick_params(axis='y', labelcolor=color)
         
+        # color = 'tab:blue'
+        # axes2 = axes[row_idx,  col_idx].twinx() 
+        # axes2.plot(data2[stage_idx]['var']['x'], data2[stage_idx]['var']['y'], label=f'var', color = color)
+        # axes2.set_ylabel('Zero Cost Score', color = color)
+        # axes2.tick_params(axis='y', labelcolor=color)
+        # axes[row_idx, col_idx].set_title(f"Stage{stage_idx} Statistics")
         color = 'tab:blue'
-        axes2 = axes[row_idx,  col_idx].twinx() 
-        axes2.plot(data2[stage_idx]['var']['x'], data2[stage_idx]['var']['y'], label=f'var', color = color)
-        axes2.set_ylabel('Zero Cost Score', color = color)
-        axes2.tick_params(axis='y', labelcolor=color)
-        axes[row_idx, col_idx].set_title(f"Stage{stage_idx} Statistics")
+        axes2[row_idx,  col_idx].plot(data2[stage_idx]['var']['x'], data2[stage_idx]['var']['y'], label=f'var', color = color)
+        axes2[row_idx,  col_idx].set_xlabel('Epoch')
+        axes2[row_idx,  col_idx].set_ylabel('Zero Cost Score Variance', color = color)
+        axes2[row_idx,  col_idx].tick_params(axis='y', labelcolor=color)
         
-        line1, label1 = axes[row_idx, col_idx].get_legend_handles_labels()
-        line2, label2 = axes2.get_legend_handles_labels()
-        axes[row_idx, col_idx].legend(line1+line2, label1+label2, loc='center right')
+        # line1, label1 = axes[row_idx, col_idx].get_legend_handles_labels()
+        # line2, label2 = axes2.get_legend_handles_labels()
+        # axes[row_idx, col_idx].legend(line1+line2, label1+label2, loc='center right')
         
 
-    plt.tight_layout()
-    plt.savefig(os.path.join(stats_folder, f'ranking_analyze_stage.jpg'), dpi=300)
+    fig.tight_layout()
+    fig2.tight_layout()
+    fig.savefig(os.path.join(stats_folder, f'ranking_analyze_stage_tau.jpg'), dpi=300)
+    fig2.savefig(os.path.join(stats_folder, f'ranking_analyze_stage_var.jpg'), dpi=300)
     plt.close(fig)
+    plt.close(fig2)
 
     with open(os.path.join(stats_folder, f'ranking_analyze_stage.json'), 'w') as f:
         json.dump(data2, f)
@@ -222,7 +248,8 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
     # Plotting Kendal tau for model
     ##############################################    
     fig, axes = plt.subplots(1, 1, figsize=(8,10))
-    axes2 = axes.twinx()
+    fig2, axes2 = plt.subplots(1, 1, figsize=(8,10))
+    # axes2 = axes.twinx()
 
     color = 'tab:red'
     axes.plot(data['tau']['x'], data['tau']['y'], label='tau', color = color)
@@ -231,18 +258,23 @@ def analyze_ranking_epoch_info(model, args, zero_cost_func):
     
     color = 'tab:blue'   
     axes2.plot(data['var']['x'],  data['var']['y'],   label='var', color = color)
-    axes2.set_ylabel('Zero Cost Score', color = color)
+    axes2.set_ylabel('Zero Cost Score Variance', color = color)
     axes2.tick_params(axis='y', labelcolor=color)
     
     axes.set_xlabel('Epoch')
     axes.set_title(f"Model Statistics")
-    line1, label1 = axes.get_legend_handles_labels()
-    line2, label2 = axes2.get_legend_handles_labels()
-    axes.legend(line1+line2, label1+label2, loc='center right')
+    axes2.set_xlabel('Epoch')
+    axes2.set_title(f"Model Statistics (Variance)")
+    # line1, label1 = axes.get_legend_handles_labels()
+    # line2, label2 = axes2.get_legend_handles_labels()
+    # axes.legend(line1+line2, label1+label2, loc='center right')
     
-    plt.tight_layout()
-    plt.savefig(os.path.join(stats_folder, f'ranking_analyze_overall.jpg'), dpi=300)
+    fig.tight_layout()
+    fig2.tight_layout()
+    fig.savefig(os.path.join(stats_folder, f'ranking_analyze_overall_tau.jpg'), dpi=300)
+    fig2.savefig(os.path.join(stats_folder, f'ranking_analyze_overall_var.jpg'), dpi=300)
     plt.close(fig)
+    plt.close(fig2)
     
     with open(os.path.join(stats_folder, f'ranking_analyze_overall.json'), 'w') as f:
         json.dump(data, f)

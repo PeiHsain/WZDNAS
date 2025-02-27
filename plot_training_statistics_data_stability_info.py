@@ -246,7 +246,7 @@ def main():
     wot_function(prob, IMG_IDX)
     
     try:
-        model_list = ['model_init.pt', *[f'ema_pretrained_{epoch}.pt' for epoch in range(2,22,2)]]
+        model_list = ['lora_init.pt', *[f'lora_pretrained_{epoch}.pt' for epoch in range(2,22,2)]]
         exp_list   = natsorted(glob.glob(os.path.join('experiments','workspace','train',args.exps+'*')))
         
         os.makedirs(stats_folder, exist_ok=True)
@@ -267,9 +267,13 @@ def main():
                 zc_map_rank_list = []
                 zc_map_correlation = []
                 for IMG_IDX in range(10):
+                    if IMG_IDX == 0:
+                        model_path = os.path.join(exp_path, 'model_weights', 'model_init.pt')
+                        print(f'Loading {model_path}')
+                        model.load_state_dict(torch.load(model_path), strict=False)
                     model_path = os.path.join(exp_path, 'model_weights', model_file)
                     print(f'Loading {model_path}')
-                    model.load_state_dict(torch.load(model_path))
+                    model.load_state_dict(torch.load(model_path), strict=False)
                     
                     zc_map = wot_function(prob, IMG_IDX)
                     num_stages = len(zc_map)

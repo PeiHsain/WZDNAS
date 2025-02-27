@@ -9,7 +9,7 @@ from lib.models.blocks.yolo_blocks_search import *
 import numpy as np
 
 PREPROCESSED=False
-BATCH_SIZE=8
+BATCH_SIZE=4
 
 # Method 0 (Original NASWOT & Egor ZeroDNAS should be this one)
 # Calculate ZeroCost for output of every ReLU or Mish block

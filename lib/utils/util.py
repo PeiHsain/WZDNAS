@@ -88,7 +88,7 @@ def add_weight_decay_supernet(model, args, weight_decay=1e-5, skip_list=()):
         total_param += param.numel()
         if '.bias' in name:
             no_decay.append(param)
-        elif '.weight' in name and '.bn' not in name:
+        elif ('.weight' in name or '.lora_' in name) and '.bn' not in name:
             decay.append(param)
         else:
             other.append(param)
@@ -216,6 +216,7 @@ def create_optimizer_supernet(args, model, has_apex, filter_bias_and_bn=True):
     theta_optimizer = torch.optim.Adam(params=thetas_params,
                                        lr=thetas_lr,
                                        weight_decay=thetas_weight_decay)
+    # print('params', parameters)
     if opt_lower == 'sgd' or opt_lower == 'nesterov':
         # print('Model Optimizer Here !!', parameters)
         optimizer = optim.SGD(
@@ -406,6 +407,7 @@ def export_thetas(thetas, model, origin_config, output_file):
     
     with open(output_file, 'w') as f:
         documents = yaml.dump(export_config, default_flow_style=True, sort_keys=False)
+        documents = documents.replace('Conv_Normal', 'Conv')
         documents = documents.replace('Upsample', 'nn.Upsample')
         f.write(documents)
     return export_config

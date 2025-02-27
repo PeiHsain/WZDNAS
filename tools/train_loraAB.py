@@ -13,6 +13,8 @@ import torch.nn as nn
 import tqdm
 import shutil
 
+import loralib as lora
+
 import _init_paths
 
 # import timm packages
@@ -28,6 +30,7 @@ except ImportError:
     USE_APEX = False
 
 # import models and training functions
+from lib.models.blocks.lora_prune import mark_only_lora_as_trainable
 from lib.utils.flops_table import FlopsEst
 from lib.core.izdnas import train_epoch_dnas, train_epoch_dnas_V2, train_epoch_zdnas
 from lib.models.structures.supernet import gen_supernet
@@ -75,6 +78,7 @@ def parse_config_args(exp_name):
     parser.add_argument('--nas', default='', type=str, help='NAS-Search-Space and hardware constraint combination')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--pre_weights', type=str, default='', help='pretrained model weights')
+    parser.add_argument('--lora_weights', type=str, default='', help='pretrained LoRA model weights')
     parser.add_argument('--zc', type=str, default='', help='zero cost metrics')
     
     ###################################################################################
@@ -223,6 +227,9 @@ def main():
         verbose=cfg.VERBOSE,
         logger=logger,
         init_temp=cfg.TEMPERATURE.INIT)
+    
+    # Just train LoRA parameters
+    mark_only_lora_as_trainable(model)
 
     # number of choice blocks in supernet
     # choice_num = model.choices # First bottlecsp
@@ -321,7 +328,7 @@ def main():
     print('[Info] cfg.TEMPERATURE.INIT', cfg.TEMPERATURE.INIT)
     print('[Info] cfg.TEMPERATURE.FINAL', cfg.TEMPERATURE.FINAL)
 
-    ema = ModelEMA(model) if args.local_rank in [-1, 0] else None
+    # ema = ModelEMA(model) if args.local_rank in [-1, 0] else None
 
     # Testloader
     if args.local_rank in [-1, 0]:
@@ -337,10 +344,10 @@ def main():
     # EMA_WEIGHT_NAME   = os.path.join(args.pretrain_dir, f'ema_pretrained_{cfg.FREEZE_EPOCH}.pt') 
     # OPTIMIZER_NAME    = os.path.join(args.pretrain_dir, f'optimizer_{cfg.FREEZE_EPOCH}.pt')
 
-    
     # training scheme
     method = 'ver1'
     is_ddp = is_parallel(model)
+    print(f"IS_DDP {is_ddp}")
     ##################################################################
     ### Choice a Zero-Cost Method
     ##################################################################    
@@ -354,12 +361,13 @@ def main():
     zc_func = PROXY_DICT[args.zc]
     wot_function = lambda arch_prob: PROXY_DICT[args.zc](model, arch_prob, imgs, targets, None)
 
+
     # Calculate trainable parameters
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Trainable Parameters (Model): {pytorch_total_params}")
-    # Calculate trainable parameters
-    pytorch_total_params = sum(p.numel() for p in ema.ema.parameters() if p.requires_grad)
-    logger.info(f"Trainable Parameters (EMA): {pytorch_total_params}")
+    # # Calculate trainable parameters
+    # pytorch_total_params = sum(p.numel() for p in ema.ema.parameters() if p.requires_grad)
+    # logger.info(f"Trainable Parameters (EMA): {pytorch_total_params}")
 
     try:
         print('TASK_FLOPS', TASK_FLOPS)
@@ -369,10 +377,12 @@ def main():
         ###########################################
         # Phase1 Pretrained Model Weights
         ###########################################
-        torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'model_init.pt'))
-        if args.pre_weights == '':
+        # torch.save(lora.lora_state_dict(model), os.path.join(model_w_dir, f'lora_init.pt'))
+        torch.save(model.state_dict(),   os.path.join(model_w_dir, f'model_init.pt'))
+        t0 = time.time()
+        if args.lora_weights == '':
             # print(model)
-            t0 = time.time()
+            # print(ema.ema)
             for epoch in range(start_epoch+1, num_epochs+1):
                 model.train()
                 ####################################################
@@ -386,7 +396,7 @@ def main():
                     train_epoch_dnas_V2(model, dataloader_weight, dataloader_thetas, optimizer, theta_optimizer, cfg, device=device, 
                         task_flops=TASK_FLOPS, task_params=TASK_PARAMS, logger=logger, 
                         est=model_est, local_rank=args.local_rank, world_size=args.world_size, 
-                        epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True, ema=ema
+                        epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True
                     )
                 
                 ####################################################
@@ -410,12 +420,13 @@ def main():
                     train_epoch_dnas(model, dataloader_weight, optimizer, cfg, device=device, 
                         task_flops=TASK_FLOPS, task_params=TASK_PARAMS, logger=logger, zero_cost_data_pair=(imgs,targets),
                         est=model_est, local_rank=args.local_rank, world_size=args.world_size, use_amp=USE_AMP, zc_func=zc_func,
-                        epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True, ema=ema, description="weights"
+                        epoch=epoch, total_epoch=num_epochs, logdir=output_dir, is_gumbel=True, description="weights"
                     )
                     
 
-                    if epoch % 2 == 0:
-                        torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'ema_pretrained_{epoch}.pt'))
+                    if epoch % 10 == 0:
+                        torch.save(model.state_dict(), os.path.join(model_w_dir, f'lora_pretrained_{epoch}.pt'))
+                        # torch.save(ema.ema.state_dict(),   os.path.join(model_w_dir, f'ema_pretrained_{epoch}.pt'))
                         
                     # if True:
                     #     ##############################################################
@@ -444,18 +455,19 @@ def main():
                     #     logger.info(f'Model Continous FLOPS : {flops:6.2f} Discrete Archtiecture : {continuous_str_arch}')        
                 
                 lr_scheduler.step()
-                logger.info("[EMA] test result")
-                _, _, map50, *other = test(
-                    data=args.data,
-                    batch_size=16,
-                    imgsz=416,
-                    save_json=False,
-                    model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,
-                    single_cls=False,
-                    dataloader=testloader,
-                    save_dir=output_dir,
-                    logger=logger
-                )
+                # logger.info("[EMA] test result")
+                # _, _, map50, *other = test(
+                #     data=args.data,
+                #     batch_size=16,
+                #     imgsz=416,
+                #     save_json=False,
+                #     # model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,\
+                #     model=ema.ema,
+                #     single_cls=False,
+                #     dataloader=testloader,
+                #     save_dir=output_dir,
+                #     logger=logger
+                # )
                 
                 logger.info("[Model] test result")
                 _, _, map50, *other = test(
@@ -463,7 +475,8 @@ def main():
                     batch_size=16,
                     imgsz=416,
                     save_json=False,
-                    model=model.module if hasattr(model, 'module') else model,
+                    # model=model.module if hasattr(model, 'module') else model,
+                    model=model,
                     single_cls=False,
                     dataloader=testloader,
                     save_dir=output_dir,
@@ -481,9 +494,17 @@ def main():
                 
             s = ('%20s' + '%12s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@.5', 'mAP@.5:.95')
             logger.info(s)
-            model.load_state_dict(ema.ema.state_dict())
+            # model.load_state_dict(ema.ema.state_dict())
+            # Load the pretrained checkpoint first
+            # model.load_state_dict(ema.ema.state_dict(), strict=False)
+            # Then load the LoRA checkpoint
+            # model.load_state_dict(lora.lora_state_dict(ema.ema), strict=False)
         else:
-            model.load_state_dict(torch.load(args.pre_weights))
+            # model.load_state_dict(torch.load(args.pre_weights))
+            # Load the pretrained checkpoint first
+            # model.load_state_dict(torch.load(args.pre_weights), strict=False)
+            # Then load the LoRA checkpoint
+            model.load_state_dict(torch.load(args.lora_weights), strict=False)
 
         t1 = time.time()
         print(f"time = {t1-t0} s")
@@ -492,6 +513,7 @@ def main():
         # Calculate trainable parameters
         pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         logger.info(f"Trainable Parameters (Model): {pytorch_total_params}")
+
         
         ###########################################
         # Phase2 Train Zero-DNAS 

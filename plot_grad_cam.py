@@ -176,7 +176,7 @@ class GRadCAM():
 
 def get_grad_cam(model, args, img_path, imgs):
     NUM_STAGES = 8
-    epoch_model_list = ['model_init.pt', *[f'ema_pretrained_{epoch}.pt' for epoch in range(2,22,2)]]    
+    epoch_model_list = ['lora_init.pt', *[f'lora_pretrained_{epoch}.pt' for epoch in range(2,22,2)]]    
     # epoch_model_list = epoch_model_list[:4]
     
     exp_list      = natsorted(glob.glob(os.path.join('experiments','workspace','train',args.exp_series+'*')))
@@ -208,16 +208,16 @@ def get_grad_cam(model, args, img_path, imgs):
         # for epoch, model_file in enumerate(epoch_model_list):                       # For each epoch
             # epoch *= 2 
             # Load the pretrained checkpoint first
-            # if epoch == 0:
-            #     model_path = os.path.join(exp_path, 'model_weights', 'model_init.pt')
-            #     print(f'Loading {model_path}')
-            #     model.load_state_dict(torch.load(model_path), strict=False)
+            if epoch == 0:
+                model_path = os.path.join(exp_path, 'model_weights', 'model_init.pt')
+                print(f'Loading {model_path}')
+                model.load_state_dict(torch.load(model_path), strict=False)
             model_path = os.path.join(exp_path, 'model_weights', model_file)
             print(f'Loading {model_path}')
             # model.load_state_dict(torch.load(model_path))
             # Then load the LoRA checkpoint
-            model.load_state_dict(torch.load(model_path))
-            save_name = f"{exp_name}_{epoch}_img1"
+            model.load_state_dict(torch.load(model_path), strict=False)
+            save_name = f"{exp_name}_{epoch}"
         
             grad_cam = GRadCAM(model, model.blocks[31]) # blocks.31
             # img[0]=voc_424, cls=16 ; img[1]=voc_430, cls=5
